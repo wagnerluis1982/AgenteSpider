@@ -27,7 +27,7 @@ public class Spider {
 		String line;
 		while ((line=reader.readLine()) != null) {
 			final Matcher matcher = HREF_REGEX.matcher(line);
-			if (matcher.find()){
+			while (matcher.find()) {
 				foundLinks.add(matcher.group(1));
 			}
 		}
