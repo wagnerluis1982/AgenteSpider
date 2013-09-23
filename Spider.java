@@ -8,9 +8,31 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class Spider {
-	static final Pattern HREF_REGEX = Pattern.compile(
+	protected static final Pattern HREF_REGEX = Pattern.compile(
 			"href=['\"]?([^'\" <>]*)['\"]?",
 			Pattern.CASE_INSENSITIVE);
+
+	protected final String address;
+
+	public Spider(String address) {
+		if (address == null)
+			throw new NullPointerException();
+
+		address = address.trim();
+		if (!this.isValidArg(address))
+			throw new IllegalArgumentException("O argumento dever ser um " +
+					"endereço http válido, finalizado por /");
+
+		this.address = address;
+	}
+
+	protected boolean isValidArg(String address) {
+		if (Pattern.matches("^http://[^'\" ]+/$", address))
+			return true;
+
+		return false;
+	}
+
 
 	/**
 	 * Obtém todos os links em uma página HTML, passada como argumento através
@@ -20,7 +42,7 @@ public class Spider {
 	 * @return Lista de links encontrados
 	 * @throws IOException se ocorrer um erro de E/S
 	 */
-	protected static List<String> findLinks(final InputStream in) throws IOException {
+	protected List<String> findLinks(final InputStream in) throws IOException {
 		final BufferedReader reader = new BufferedReader(new InputStreamReader(in));
 		final List<String> foundLinks = new ArrayList<>();
 
@@ -35,4 +57,18 @@ public class Spider {
 		return foundLinks;
 	}
 
+	public static void main(String[] args) {
+		if (args.length < 1) {
+			System.out.println("Uso: java Spider <ENDERECO_HTTP>");
+			System.exit(1);
+		}
+
+		Spider spider;
+		try {
+			spider = new Spider(args[0]);
+		} catch (IllegalArgumentException e) {
+			System.out.println(e.getMessage());
+			System.exit(2);
+		}
+	}
 }
