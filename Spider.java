@@ -42,15 +42,15 @@ public class Spider {
 	 * @return Lista de links encontrados
 	 * @throws IOException se ocorrer um erro de E/S
 	 */
-	protected List<String> findLinks(final InputStream in) throws IOException {
+	protected List<Link> findLinks(final InputStream in) throws IOException {
 		final BufferedReader reader = new BufferedReader(new InputStreamReader(in));
-		final List<String> foundLinks = new ArrayList<>();
+		final List<Link> foundLinks = new ArrayList<>();
 
 		String line;
-		while ((line=reader.readLine()) != null) {
+		for (int no = 1; (line=reader.readLine()) != null; no++) {
 			final Matcher matcher = HREF_REGEX.matcher(line);
 			while (matcher.find()) {
-				foundLinks.add(matcher.group(1));
+				foundLinks.add(new Link(this.address, matcher.group(1), no));
 			}
 		}
 
@@ -70,5 +70,17 @@ public class Spider {
 			System.out.println(e.getMessage());
 			System.exit(2);
 		}
+	}
+}
+
+class Link {
+	final String pageUrl;
+	final String linkTo;
+	final int line;
+
+	public Link(String pageUrl, String linkTo, int line) {
+		this.pageUrl = pageUrl;
+		this.linkTo = linkTo;
+		this.line = line;
 	}
 }
