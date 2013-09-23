@@ -20,7 +20,7 @@ public class Spider {
 	 * @return Lista de links encontrados
 	 * @throws IOException se ocorrer um erro de E/S
 	 */
-	private static List<String> findLinks(final InputStream in) throws IOException {
+	protected static List<String> findLinks(final InputStream in) throws IOException {
 		final BufferedReader reader = new BufferedReader(new InputStreamReader(in));
 		final List<String> foundLinks = new ArrayList<>();
 
