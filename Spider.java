@@ -3,6 +3,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -54,11 +55,56 @@ public class Spider {
 		for (int no = 1; (line=reader.readLine()) != null; no++) {
 			final Matcher matcher = HREF_REGEX.matcher(line);
 			while (matcher.find()) {
-				foundLinks.add(new Link(this.address, matcher.group(1), no));
+				String linkTo = this.absoluteLink(matcher.group(1));
+				if (linkTo != null)
+					foundLinks.add(new Link(this.address, linkTo, no));
 			}
 		}
 
 		return foundLinks;
+	}
+
+	protected String absoluteLink(String link) {
+		// Link já é http
+		if (link.startsWith("http://"))
+			return link;
+
+		// Link relativo à raiz deve se tornar absoluto
+		if (link.startsWith("/"))
+			return this.host + link;
+
+		// Links relativos
+		if (link.startsWith("./"))
+			return this.address + link.substring(2);
+
+		// Subindo na hierarquia de diretórios (uma vez ou mais)
+		if (link.startsWith("../")) {
+			List<String> paths = new ArrayList<>(
+					Arrays.asList(this.address.split("/")));
+			try {
+				while (link.startsWith("../")) {
+					paths.remove(paths.size()-1);
+					link = link.substring(3);
+				}
+			} catch (IndexOutOfBoundsException e) {
+				// Link subiu demais na hierarquia
+				return null;
+			}
+			String basePath = this.pathJoin(paths);
+			if (basePath.startsWith(this.host))
+				return basePath + link;
+		}
+
+		// Outros protocolos e links mal formados não são suportados
+		return null;
+	}
+
+	protected String pathJoin(List<String> pieces) {
+		StringBuffer path = new StringBuffer();
+		for (String piece : pieces)
+			path.append(piece).append("/");
+
+		return path.toString();
 	}
 
 	public static void main(String[] args) {
@@ -82,7 +128,7 @@ class Link {
 	final String linkTo;
 	final int line;
 
-	public Link(String pageUrl, String linkTo, int line) {
+	public Link(final String pageUrl, final String linkTo, final int line) {
 		this.pageUrl = pageUrl;
 		this.linkTo = linkTo;
 		this.line = line;
