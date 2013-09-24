@@ -9,10 +9,10 @@ import java.util.regex.Pattern;
 
 public class Spider {
 	protected static final Pattern HREF_REGEX = Pattern.compile(
-			"href=['\"]?([^'\" <>]*)['\"]?",
-			Pattern.CASE_INSENSITIVE);
+			"href=['\"]?([^'\" <>]*)['\"]?", Pattern.CASE_INSENSITIVE);
 
 	protected final String address;
+	protected final String host;
 
 	public Spider(String address) {
 		if (address == null)
@@ -24,15 +24,19 @@ public class Spider {
 					"endereço http válido, finalizado por /");
 
 		this.address = address;
+		this.host = this.getHost(address);
 	}
 
-	protected boolean isValidArg(String address) {
+	protected String getHost(String address) {
+		return address.substring(0, address.indexOf("/", 7));
+	}
+
+	protected boolean isValidArg(final String address) {
 		if (Pattern.matches("^http://[^'\" ]+/$", address))
 			return true;
 
 		return false;
 	}
-
 
 	/**
 	 * Obtém todos os links em uma página HTML, passada como argumento através
