@@ -107,20 +107,39 @@ public class Spider {
 		return path.toString();
 	}
 
+	protected List<InvalidLink> invalidLinks(String address) {
+		return null;
+	}
+
+	public List<InvalidLink> invalidLinks() {
+		return this.invalidLinks(this.address);
+	}
+
 	public static void main(String[] args) {
+		long startTime = System.currentTimeMillis();
+
 		if (args.length < 1) {
 			System.out.println("Uso: java Spider <ENDERECO_HTTP>");
 			System.exit(1);
 		}
 
-		Spider spider;
+		Spider spider = null;
 		try {
 			spider = new Spider(args[0]);
 		} catch (IllegalArgumentException e) {
 			System.out.println(e.getMessage());
 			System.exit(2);
 		}
+
+		for (InvalidLink invalid : spider.invalidLinks()) {
+			Link link = invalid.link;
+			System.out.println(String.format("%s %d %s %d",
+					link.linkTo, invalid.code, link.pageUrl, link.line));
+		}
+
+		System.out.println("TIME " + (System.currentTimeMillis() - startTime));
 	}
+
 }
 
 class Link {
@@ -132,5 +151,15 @@ class Link {
 		this.pageUrl = pageUrl;
 		this.linkTo = linkTo;
 		this.line = line;
+	}
+}
+
+class InvalidLink {
+	final Link link;
+	int code;
+
+	public InvalidLink(Link link, int code) {
+		this.link = link;
+		this.code = code;
 	}
 }
