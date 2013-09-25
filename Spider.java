@@ -3,7 +3,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
-import java.io.StringReader;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -53,26 +52,27 @@ public class Spider {
 	 * Obtém todos os links em uma página HTML, passada como argumento através
 	 * de um {@link InputStream}.
 	 *
-	 * @param content Página HTML
+	 * @param buffer Página HTML
 	 * @return Lista de links encontrados
 	 * @throws IOException se ocorrer um erro de E/S
 	 */
-	protected List<Link> findLinks(final String content) throws IOException {
-		final BufferedReader reader = new BufferedReader(new StringReader(content));
+	protected List<Link> findLinks(final BufferedReader buffer) {
 		final List<Link> foundLinks = new ArrayList<>();
 
 		String line;
-		for (int no = 1; (line=reader.readLine()) != null; no++) {
-			final Matcher matcher = HREF_REGEX.matcher(line);
-			while (matcher.find()) {
-				String linkTo = this.absoluteLink(matcher.group(1));
-				if (linkTo != null)
-					foundLinks.add(new Link(this.address, linkTo, no));
+		try {
+			for (int no = 1; (line=buffer.readLine()) != null; no++) {
+				final Matcher matcher = HREF_REGEX.matcher(line);
+				while (matcher.find()) {
+					String linkTo = this.absoluteLink(matcher.group(1));
+					if (linkTo != null)
+						foundLinks.add(new Link(this.address, linkTo, no));
+				}
 			}
+			buffer.close();
+		} catch (IOException e) {
+			e.printStackTrace();
 		}
-
-		// Liberando recursos
-		reader.close();
 
 		return foundLinks;
 	}
@@ -172,31 +172,34 @@ public class Spider {
 		// Posicionando o buffer na posição do conteúdo
 		while (buffer.readLine().length() != 0);
 
-		// Obtendo o conteúdo
-		StringBuilder content = new StringBuilder();
-		String line;
-		while ((line=buffer.readLine()) != null)
-			content.append(line);
-
-		// Libera recurso
-		buffer.close();
-
-		return new Page(code, content.toString());
+		return new Page(code, buffer);
 	}
 
 	protected List<InvalidLink> invalidLinks(Link link) {
 		List<InvalidLink> invalids = new ArrayList<>();
 
+		Page page = null;
 		try {
-			Page page = httpGet(link.linkTo);
+			page = httpGet(link.linkTo);
 			if (page.code != 200) {
 				invalids.add(new InvalidLink(link, page.code));
 				return invalids;
 			}
-//			for (Link l : findLinks(page.content))
-//				;
 		} catch (IOException e) {
-			e.printStackTrace();
+			// Erro de DNS
+			invalids.add(new InvalidLink(link, 0));
+			return invalids;
+		}
+
+		for (Link found : findLinks(page.buffer)) {
+			try {
+				page = httpGet(found.linkTo);
+				if (page.code != 200)
+					invalids.add(new InvalidLink(found, page.code));
+			} catch (IOException e) {
+				// Erro de DNS
+				invalids.add(new InvalidLink(found, 0));
+			}
 		}
 
 		return invalids;
@@ -261,11 +264,11 @@ class InvalidLink {
 
 class Page {
 	final int code;
-	final String content;
+	final BufferedReader buffer;
 
-	public Page(int code, String content) {
+	public Page(int code, BufferedReader buffer) {
 		this.code = code;
-		this.content = content;
+		this.buffer = buffer;
 	}
 }
 
