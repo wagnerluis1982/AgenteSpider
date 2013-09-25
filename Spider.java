@@ -17,20 +17,20 @@ public class Spider {
 	protected static final Pattern HREF_REGEX = Pattern.compile(
 			"href=['\"]?([^'\" <>]*)['\"]?", Pattern.CASE_INSENSITIVE);
 
-	protected final String address;
-	protected final String host;
+	protected final String baseAddress;
+	protected final String baseHost;
 
-	public Spider(String address) {
-		if (address == null)
+	public Spider(String baseAddress) {
+		if (baseAddress == null)
 			throw new NullPointerException();
 
-		address = address.trim();
-		if (!isValidArg(address))
+		baseAddress = baseAddress.trim();
+		if (!isValidArg(baseAddress))
 			throw new IllegalArgumentException("O argumento dever ser um " +
 					"endereço http válido, finalizado por /");
 
-		this.address = address;
-		this.host = getHost(address);
+		this.baseAddress = baseAddress;
+		this.baseHost = getHost(baseAddress);
 	}
 
 	protected String getHost(String address) {
@@ -66,7 +66,7 @@ public class Spider {
 				while (matcher.find()) {
 					String linkTo = this.absoluteLink(matcher.group(1));
 					if (linkTo != null)
-						foundLinks.add(new Link(this.address, linkTo, no));
+						foundLinks.add(new Link(this.baseAddress, linkTo, no));
 				}
 			}
 			buffer.close();
@@ -85,10 +85,10 @@ public class Spider {
 
 			// Link relativo à raiz deve se tornar absoluto
 			if (link.startsWith("/"))
-				return "http://" + this.host + normalizedLink(link);
+				return "http://" + this.baseHost + normalizedLink(link);
 
 			// Links relativos
-			return normalizedLink(this.address + link);
+			return normalizedLink(this.baseAddress + link);
 		} catch (NormalizationException e) {}
 
 		// Outros protocolos e links mal formados não são suportados
@@ -206,7 +206,7 @@ public class Spider {
 	}
 
 	public List<InvalidLink> invalidLinks() {
-		return this.invalidLinks(new Link("<base>", this.address, 0));
+		return this.invalidLinks(new Link("<base>", this.baseAddress, 0));
 	}
 
 	public static void main(String[] args) {
