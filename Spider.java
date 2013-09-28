@@ -1,10 +1,11 @@
+import java.io.BufferedInputStream;
 import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.StringReader;
 import java.net.Socket;
-import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
@@ -17,14 +18,22 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class Spider {
+	private static final int BUF_SIZE = 10240;
+	// Regex constants
 	protected static final Pattern HREF_REGEX = Pattern.compile(
 			"href=\"([^'\" <>]*)\"", Pattern.CASE_INSENSITIVE);
 	protected static final Pattern HOST_REGEX = Pattern.compile(
-			"^http://([a-z.]+)");
+			"^http://(.+?)/", Pattern.CASE_INSENSITIVE);
+	protected static final Pattern CLENGTH_REGEX = Pattern.compile(
+			"^content-length:", Pattern.CASE_INSENSITIVE);
+	protected static final Pattern CHUNKED_REGEX= Pattern.compile(
+			"^transfer-encoding:\\s?chunked$", Pattern.CASE_INSENSITIVE);
+	// Other constants
+	protected static final StringBuilder EMPTY_CONTENT = new StringBuilder(0);
 
 	protected final String baseAddress;
 	protected final String baseHost;
-	protected final Map<String, Socket> openSockets;
+	protected final Map<String, SpiderSocket> openSockets;
 
 	// Construtor
 	public Spider(String baseAddress) {
@@ -132,12 +141,13 @@ public class Spider {
 	 * Obtém todos os links em uma página HTML, passada como argumento através
 	 * de um {@link InputStream}.
 	 *
-	 * @param buffer Página HTML
+	 * @param content Página HTML
 	 * @return Lista de links encontrados
 	 * @throws IOException se ocorrer um erro de E/S
 	 */
-	protected List<Link> findLinks(final BufferedReader buffer) {
+	protected List<Link> findLinks(final CharSequence content) {
 		final List<Link> foundLinks = new ArrayList<>();
+		BufferedReader buffer = new BufferedReader(new StringReader(content.toString()));
 
 		String line;
 		try {
@@ -156,10 +166,11 @@ public class Spider {
 		return foundLinks;
 	}
 
-	protected Socket getHttpSocket(String host) throws UnknownHostException, IOException {
-		Socket sock = this.openSockets.get(host);
-		if (sock == null || sock.isClosed()) {
-			sock = new Socket(host, 80);
+	protected SpiderSocket getSpiderSocket(String host) throws IOException {
+		SpiderSocket sock = this.openSockets.get(host);
+		if (sock == null || sock.realSock.isClosed()) {
+			System.out.printf("Novo socket para '%s' aberto\n", host);
+			sock = new SpiderSocket(new Socket(host, 80));
 			this.openSockets.put(host, sock);
 		}
 
@@ -169,47 +180,171 @@ public class Spider {
 	protected Page httpGet(String address) throws IOException {
 		// Conexão
 		String host = getHost(address);
-		Socket socket = getHttpSocket(host);
-		OutputStream os = socket.getOutputStream();
-		InputStream  is = socket.getInputStream();
+		SpiderSocket sock = getSpiderSocket(host);
 
 		// Requisição
 		String requisition = String.format("GET %s HTTP/1.1\r\n" +
 				"Host:%s\r\n\r\n", address, host);
-		os.write(requisition.getBytes());
+		sock.out.write(requisition.getBytes());
+		// Obtém o cabeçalho http
+		Header header = readHttpHeader(sock);
 
-		// Código de resposta
-		BufferedReader buffer = new BufferedReader(new InputStreamReader(is));
-		int code = Integer.parseInt(buffer.readLine().split(" ")[1]);
-
-		// Só obtem conteúdo quando código for 200
-		if (code != 200) {
-			return new Page(code, null);
+		if (header.getHttpVersion().equals("HTTP/1.0")) {
+			return http10GetContent(sock, header);
 		}
 
-		// Posicionando o buffer na posição do conteúdo
-		while (buffer.readLine().length() != 0);
+		else if (header.getHttpVersion().equals("HTTP/1.1"))
+			return http11GetContent(sock, header);
 
-		return new Page(code, buffer);
+		throw new RuntimeException(String.format(
+				"O Agente Spider não suporta o protocolo '%s'",
+				header.getHttpVersion()));
+	}
+
+	private Header readHttpHeader(SpiderSocket sock) throws IOException {
+		final StringBuilder sbHeader = new StringBuilder();
+
+		// Obtém inicialmente quatro bytes para não gerar exceção no while
+		for (int i = 0; i < 4; i++)
+			sbHeader.append((char) sock.in.read());
+
+		// Obtém todo o header
+		while (!sbHeader.substring(sbHeader.length()-4).equals("\r\n\r\n"))
+			sbHeader.append((char) sock.in.read());
+
+		final String[] headerLines = sbHeader.toString().split("\r\n");
+
+		// Código de resposta e versão do protocolo
+		final String[] firstLine = headerLines[0].split(" ");
+		final String protocol = firstLine[0];
+		final int code = Integer.parseInt(firstLine[1]);
+
+		// Content-Length e Transfer-Encoding
+		int clength = 0;
+		boolean chunked = false;
+		for (int i = 0; i < headerLines.length; i++) {
+			final String line = headerLines[i];
+			if (CLENGTH_REGEX.matcher(line).lookingAt()) {
+				clength = Integer.parseInt(line.split(":")[1].trim());
+				break;
+			}
+			else if (CHUNKED_REGEX.matcher(line).matches()) {
+				chunked = true;
+				break;
+			}
+		}
+
+		return new Header(protocol, code, clength, chunked);
+	}
+
+	/**
+	 * Algoritmos na tentativa de reusar a conexão com o servidor. Eles são
+	 * necessários por dois motivos:
+	 * - Melhor uso de memória e processador (pois menos sockets precisarão
+	 *   ser abertos).
+	 * - Impedir que o servidor bloqueie o processo. Alguns servidores como
+	 *   os do Google fazem isso. Esse é o ponto mais importante, pois
+	 *   inviabilizaria o Agente Spider.
+	 */
+	private Page http11GetContent(SpiderSocket sock, Header header) throws IOException {
+		// Se o header Content-Length foi encontrado
+		if (header.getContentLength() != -1)
+			return http11GetContentByLength(sock, header);
+
+		// Se o header Transfer-Encoding: chunked foi encontrado
+		else if (header.isChunked())
+			return http11GetContentChunked(sock, header);
+
+		/* Se não foi encontrado nada que indique onde parar, tenta obter com
+		 * o algoritmo de HTTP/1.0, habilitando o timeout para não bloquear.
+		 */
+		else
+			return http10GetContent(sock, header, 2000);
+	}
+
+	private Page http11GetContentChunked(SpiderSocket sock, Header header) throws IOException {
+		final StringBuilder sb = new StringBuilder();
+
+		// Pega o primeiro tamanho do chunk
+		do {
+			sb.append((char) sock.in.read());
+		} while (sb.charAt(sb.length()-1) != '\n');
+		int chunkSize = Integer.parseInt(sb.toString(), 16);
+		sb.setLength(0);
+
+		ByteArrayOutputStream content = new ByteArrayOutputStream(BUF_SIZE);
+		while (chunkSize > 0) {
+			final byte[] buf = new byte[chunkSize];
+			do {
+				final int bytesRead = sock.in.read(buf, 0, chunkSize);
+				content.write(buf, 0, bytesRead);
+				chunkSize -= bytesRead;
+			} while (chunkSize > 0);
+			sock.in.skip(2);
+			// Pega tamanho do próximo chunk
+			do {
+				sb.append((char) sock.in.read());
+			} while (sb.charAt(sb.length()-1) != '\n');
+			chunkSize = Integer.parseInt(sb.toString(), 16);
+			sb.setLength(0);
+		}
+		sock.in.skip(2);
+
+		return new Page(header.getCode(), content.toString());
+	}
+
+	private Page http11GetContentByLength(SpiderSocket sock, Header header)
+			throws IOException {
+		if (header.getContentLength() == 0) {
+			sock.in.skip(2);
+			return new Page(header.getCode(), EMPTY_CONTENT);
+		}
+		else {
+			int clength = header.getContentLength();
+			final byte[] buf = new byte[(clength < BUF_SIZE) ? clength : BUF_SIZE];
+			ByteArrayOutputStream content = new ByteArrayOutputStream(BUF_SIZE);
+
+			do {
+				final int bytesRead = sock.in.read(buf, 0, (clength < BUF_SIZE) ? clength : BUF_SIZE);
+				clength -= bytesRead;
+				content.write(buf, 0, bytesRead);
+			} while (clength > 0);
+			sock.in.skip(2);
+
+			return new Page(header.getCode(), content.toString());
+		}
+	}
+
+	private Page http10GetContent(SpiderSocket sock, Header header) throws IOException {
+		return http10GetContent(sock, header, 0);
+	}
+
+	private Page http10GetContent(SpiderSocket sock, Header header, int timeout) throws IOException {
+		sock.realSock.setSoTimeout(timeout);
+		if (header.getCode() != 200)
+			return new Page(header.getCode(), null);
+
+		final byte[] buf = new byte[BUF_SIZE];
+		ByteArrayOutputStream content = new ByteArrayOutputStream(BUF_SIZE);
+
+		int bytesRead;
+		while ((bytesRead=sock.in.read(buf)) != -1);
+			content.write(buf, 0, bytesRead);
+
+		return new Page(header.getCode(), content.toString());
 	}
 
 	protected int httpHead(String address) throws IOException {
 		// Conexão
 		String host = getHost(address);
-		Socket socket = getHttpSocket(host);
-		OutputStream os = socket.getOutputStream();
-		InputStream  is = socket.getInputStream();
+		SpiderSocket sock = getSpiderSocket(host);
 
 		// Requisição
 		String requisition = String.format("HEAD %s HTTP/1.1\r\n" +
 				"Host:%s\r\n\r\n", address, host);
-		os.write(requisition.getBytes());
+		sock.out.write(requisition.getBytes());
 
-		// Código de resposta
-		BufferedReader buffer = new BufferedReader(new InputStreamReader(is));
-		int code = Integer.parseInt(buffer.readLine().split(" ")[1]);
-
-		return code;
+		return readHttpHeader(sock).getCode();
 	}
 
 	protected List<InvalidLink> invalidLinks(Link link) {
@@ -228,7 +363,7 @@ public class Spider {
 			return invalids;
 		}
 
-		for (Link found : findLinks(page.buffer)) {
+		for (Link found : findLinks(page.content)) {
 			try {
 				int code = httpHead(found.linkTo);
 				if (code != 200)
@@ -299,25 +434,55 @@ class InvalidLink {
 	}
 }
 
+class Header {
+	private final String version;
+	private final int code;
+	private final int clength;
+	private final boolean chunked;
+
+	public Header(String version, int code, int clength, boolean chunked) {
+		this.version = version;
+		this.code = code;
+		this.clength = clength;
+		this.chunked = chunked;
+	}
+
+	public String getHttpVersion() {
+		return this.version;
+	}
+
+	public int getCode() {
+		return this.code;
+	}
+
+	public int getContentLength() {
+		return this.clength;
+	}
+
+	public boolean isChunked() {
+		return this.chunked;
+	}
+}
+
 class Page {
 	final int code;
-	final BufferedReader buffer;
+	final CharSequence content;
 
-	public Page(int code, BufferedReader buffer) {
+	public Page(int code, CharSequence content) {
 		this.code = code;
-		this.buffer = buffer;
+		this.content = content;
 	}
 }
 
 class SpiderSocket {
-	final Socket sock;
-	final BufferedReader in;
+	final Socket realSock;
+	final BufferedInputStream in;
 	final OutputStream out;
 
-	public SpiderSocket(Socket sock, BufferedReader in, OutputStream out) {
-		this.sock = sock;
-		this.in = in;
-		this.out = out;
+	public SpiderSocket(Socket sock) throws IOException {
+		this.realSock = sock;
+		this.in = new BufferedInputStream(sock.getInputStream());
+		this.out = sock.getOutputStream();
 	}
 }
 
