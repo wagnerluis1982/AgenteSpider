@@ -6,6 +6,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.StringReader;
 import java.net.Socket;
+import java.net.SocketException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Iterator;
@@ -23,13 +24,15 @@ public class Spider {
 	protected static final Pattern HREF_REGEX = Pattern.compile(
 			"href=\"([^'\" <>]*)\"", Pattern.CASE_INSENSITIVE);
 	protected static final Pattern HOST_REGEX = Pattern.compile(
-			"^http://(.+?)/", Pattern.CASE_INSENSITIVE);
+			"^http://(?:(.+?)/|(.+)$)", Pattern.CASE_INSENSITIVE);
+	protected static final Pattern PATH_REGEX = Pattern.compile(
+			"^http://.+?(/.*)$", Pattern.CASE_INSENSITIVE);
 	protected static final Pattern CLENGTH_REGEX = Pattern.compile(
 			"^content-length:", Pattern.CASE_INSENSITIVE);
 	protected static final Pattern CHUNKED_REGEX= Pattern.compile(
 			"^transfer-encoding:\\s?chunked$", Pattern.CASE_INSENSITIVE);
 	// Other constants
-	protected static final StringBuilder EMPTY_CONTENT = new StringBuilder(0);
+	protected static final String EMPTY_CONTENT = "";
 
 	protected final String baseAddress;
 	protected final String baseHost;
@@ -59,8 +62,25 @@ public class Spider {
 
 	protected String getHost(String address) {
 		Matcher matcher = HOST_REGEX.matcher(address);
-		matcher.find();
-		return matcher.group(1);
+
+		if (matcher.find()) {
+			String host = matcher.group(1);
+			if (host != null)
+				return host;
+			else
+				return matcher.group(2);
+		}
+
+		return null;
+	}
+
+	protected String getAddressPath(String address) {
+		Matcher matcher = PATH_REGEX.matcher(address);
+
+		if (matcher.find())
+			return matcher.group(1);
+
+		return "/";
 	}
 
 	/**
@@ -169,7 +189,6 @@ public class Spider {
 	protected SpiderSocket getSpiderSocket(String host) throws IOException {
 		SpiderSocket sock = this.openSockets.get(host);
 		if (sock == null || sock.realSock.isClosed()) {
-			System.out.printf("Novo socket para '%s' aberto\n", host);
 			sock = new SpiderSocket(new Socket(host, 80));
 			this.openSockets.put(host, sock);
 		}
@@ -177,17 +196,60 @@ public class Spider {
 		return sock;
 	}
 
+	protected int httpHead(String address) throws IOException {
+		// Conexão
+		String host = getHost(address);
+		address = getAddressPath(address);
+		SpiderSocket sock = getSpiderSocket(host);
+
+		// Faz duas tentativas de obter o cabeçalho
+		for (int i = 0; i < 2; i++) {
+			try {
+				// Requisição
+				String requisition = String.format("HEAD %s HTTP/1.1\r\n" +
+						"Host:%s\r\n\r\n", address, host);
+				sock.out.write(requisition.getBytes());
+
+				return readHttpHeader(sock).getCode();
+			} catch (SocketException e) {
+				// Se houve erros na tentativa de comunicação, força a recriação
+				// do socket.
+				sock.realSock.close();
+				sock = getSpiderSocket(host);
+			}
+		}
+
+		return 0;
+	}
+
 	protected Page httpGet(String address) throws IOException {
 		// Conexão
 		String host = getHost(address);
+		address = getAddressPath(address);
 		SpiderSocket sock = getSpiderSocket(host);
 
-		// Requisição
-		String requisition = String.format("GET %s HTTP/1.1\r\n" +
-				"Host:%s\r\n\r\n", address, host);
-		sock.out.write(requisition.getBytes());
-		// Obtém o cabeçalho http
-		Header header = readHttpHeader(sock);
+		Header header = null;
+		// Faz duas tentativas de obter o cabeçalho
+		for (int i = 0; i < 2; i++) {
+			try {
+				// Requisição
+				String requisition = String.format("GET %s HTTP/1.1\r\n" +
+						"Host:%s\r\n\r\n", address, host);
+				sock.out.write(requisition.getBytes());
+
+				header = readHttpHeader(sock);
+				break;
+			} catch (SocketException e) {
+				// Se houve erros na tentativa de comunicação, força a recriação
+				// do socket.
+				sock.realSock.close();
+				sock = getSpiderSocket(host);
+			}
+		}
+
+		// Tentativas falharam
+		if (header == null)
+			return new Page(0, null);
 
 		if (header.getHttpVersion().equals("HTTP/1.0")) {
 			return http10GetContent(sock, header);
@@ -202,10 +264,14 @@ public class Spider {
 	}
 
 	private Header readHttpHeader(SpiderSocket sock) throws IOException {
-		final StringBuilder sbHeader = new StringBuilder();
+		final StringBuilder sbHeader = new StringBuilder(500);
 
 		// Obtém inicialmente quatro bytes para não gerar exceção no while
-		for (int i = 0; i < 4; i++)
+		int c = sock.in.read();
+		if (c == -1)
+			throw new SocketException("Problema nesse socket");
+		sbHeader.append((char) c);
+		for (int i = 0; i < 3; i++)
 			sbHeader.append((char) sock.in.read());
 
 		// Obtém todo o header
@@ -220,9 +286,9 @@ public class Spider {
 		final int code = Integer.parseInt(firstLine[1]);
 
 		// Content-Length e Transfer-Encoding
-		int clength = 0;
+		int clength = -1;
 		boolean chunked = false;
-		for (int i = 0; i < headerLines.length; i++) {
+		for (int i = 1; i < headerLines.length; i++) {
 			final String line = headerLines[i];
 			if (CLENGTH_REGEX.matcher(line).lookingAt()) {
 				clength = Integer.parseInt(line.split(":")[1].trim());
@@ -266,11 +332,11 @@ public class Spider {
 		final StringBuilder sb = new StringBuilder();
 
 		// Pega o primeiro tamanho do chunk
-		do {
-			sb.append((char) sock.in.read());
-		} while (sb.charAt(sb.length()-1) != '\n');
-		int chunkSize = Integer.parseInt(sb.toString(), 16);
-		sb.setLength(0);
+		char c;
+		while ((c=(char) sock.in.read()) != '\n')
+			sb.append(c);
+
+		int chunkSize = Integer.parseInt(sb.toString().trim(), 16);
 
 		ByteArrayOutputStream content = new ByteArrayOutputStream(BUF_SIZE);
 		while (chunkSize > 0) {
@@ -282,11 +348,10 @@ public class Spider {
 			} while (chunkSize > 0);
 			sock.in.skip(2);
 			// Pega tamanho do próximo chunk
-			do {
-				sb.append((char) sock.in.read());
-			} while (sb.charAt(sb.length()-1) != '\n');
-			chunkSize = Integer.parseInt(sb.toString(), 16);
 			sb.setLength(0);
+			while ((c=(char) sock.in.read()) != '\n')
+				sb.append(c);
+			chunkSize = Integer.parseInt(sb.toString().trim(), 16);
 		}
 		sock.in.skip(2);
 
@@ -302,14 +367,13 @@ public class Spider {
 		else {
 			int clength = header.getContentLength();
 			final byte[] buf = new byte[(clength < BUF_SIZE) ? clength : BUF_SIZE];
-			ByteArrayOutputStream content = new ByteArrayOutputStream(BUF_SIZE);
+			ByteArrayOutputStream content = new ByteArrayOutputStream(buf.length);
 
 			do {
 				final int bytesRead = sock.in.read(buf, 0, (clength < BUF_SIZE) ? clength : BUF_SIZE);
 				clength -= bytesRead;
 				content.write(buf, 0, bytesRead);
 			} while (clength > 0);
-			sock.in.skip(2);
 
 			return new Page(header.getCode(), content.toString());
 		}
@@ -332,19 +396,6 @@ public class Spider {
 			content.write(buf, 0, bytesRead);
 
 		return new Page(header.getCode(), content.toString());
-	}
-
-	protected int httpHead(String address) throws IOException {
-		// Conexão
-		String host = getHost(address);
-		SpiderSocket sock = getSpiderSocket(host);
-
-		// Requisição
-		String requisition = String.format("HEAD %s HTTP/1.1\r\n" +
-				"Host:%s\r\n\r\n", address, host);
-		sock.out.write(requisition.getBytes());
-
-		return readHttpHeader(sock).getCode();
 	}
 
 	protected List<InvalidLink> invalidLinks(Link link) {
@@ -476,7 +527,7 @@ class Page {
 
 class SpiderSocket {
 	final Socket realSock;
-	final BufferedInputStream in;
+	final InputStream in;
 	final OutputStream out;
 
 	public SpiderSocket(Socket sock) throws IOException {
