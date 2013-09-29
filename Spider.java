@@ -9,11 +9,14 @@ import java.net.Socket;
 import java.net.SocketException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -37,6 +40,8 @@ public class Spider {
 	protected final String baseAddress;
 	protected final String baseHost;
 	protected final Map<String, SpiderSocket> openSockets;
+	private final List<InvalidLink> invalids = Collections.synchronizedList(new ArrayList<InvalidLink>());
+	private Set<String> viewed = Collections.synchronizedSet(new HashSet<String>());
 
 	// Construtor
 	public Spider(String baseAddress) {
@@ -224,9 +229,8 @@ public class Spider {
 
 	protected Page httpGet(String address) throws IOException {
 		// Conexão
-		String host = getHost(address);
 		address = getAddressPath(address);
-		SpiderSocket sock = getSpiderSocket(host);
+		SpiderSocket sock = getSpiderSocket(this.baseHost);
 
 		Header header = null;
 		// Faz duas tentativas de obter o cabeçalho
@@ -234,7 +238,7 @@ public class Spider {
 			try {
 				// Requisição
 				String requisition = String.format("GET %s HTTP/1.1\r\n" +
-						"Host:%s\r\n\r\n", address, host);
+						"Host:%s\r\n\r\n", address, this.baseHost);
 				sock.out.write(requisition.getBytes());
 
 				header = readHttpHeader(sock);
@@ -243,7 +247,7 @@ public class Spider {
 				// Se houve erros na tentativa de comunicação, força a recriação
 				// do socket.
 				sock.realSock.close();
-				sock = getSpiderSocket(host);
+				sock = getSpiderSocket(this.baseHost);
 			}
 		}
 
@@ -399,33 +403,48 @@ public class Spider {
 	}
 
 	protected List<InvalidLink> invalidLinks(Link link) {
-		List<InvalidLink> invalids = new ArrayList<>();
-
 		Page page = null;
-		try {
-			page = httpGet(link.linkTo);
-			if (page.code != 200) {
-				invalids.add(new InvalidLink(link, page.code));
-				return invalids;
+		synchronized (this.invalids) {
+			try {
+				page = httpGet(link.linkTo);
+				if (page.code != 200) {
+					this.invalids.add(new InvalidLink(link, page.code));
+					return this.invalids;
+				}
+			} catch (IOException e) {
+				// Erro de DNS
+				this.invalids.add(new InvalidLink(link, 0));
+				return this.invalids;
 			}
-		} catch (IOException e) {
-			// Erro de DNS
-			invalids.add(new InvalidLink(link, 0));
-			return invalids;
 		}
 
 		for (Link found : findLinks(page.content)) {
+			synchronized (this.viewed) {
+				if (this.viewed.contains(found.linkTo))
+					continue;
+				else
+					this.viewed.add(found.linkTo);
+			}
+
 			try {
-				int code = httpHead(found.linkTo);
-				if (code != 200)
-					invalids.add(new InvalidLink(found, code));
+				if (found.linkTo.startsWith(this.baseAddress))
+					invalidLinks(found);  // chamada recursiva
+				else {
+					int code = httpHead(found.linkTo);
+					if (code != 200)
+						synchronized (this.invalids) {
+							this.invalids.add(new InvalidLink(found, code));
+						}
+				}
 			} catch (IOException e) {
-				// Erro de DNS
-				invalids.add(new InvalidLink(found, 0));
+				// Erro de rede (DNS, etc)
+				synchronized (this.invalids) {
+					this.invalids.add(new InvalidLink(found, 0));
+				}
 			}
 		}
 
-		return invalids;
+		return this.invalids;
 	}
 
 	public List<InvalidLink> invalidLinks() {
