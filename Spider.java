@@ -32,6 +32,8 @@ public class Spider {
 			"^http://.+?(/.*)$", Pattern.CASE_INSENSITIVE);
 	protected static final Pattern CLENGTH_REGEX = Pattern.compile(
 			"^content-length:", Pattern.CASE_INSENSITIVE);
+	protected static final Pattern CTYPE_REGEX = Pattern.compile(
+			"^content-type:", Pattern.CASE_INSENSITIVE);
 	protected static final Pattern CHUNKED_REGEX= Pattern.compile(
 			"^transfer-encoding:\\s?chunked$", Pattern.CASE_INSENSITIVE);
 	// Other constants
@@ -202,6 +204,7 @@ public class Spider {
 	}
 
 	protected int httpHead(String address) throws IOException {
+		System.out.println("HEAD " + address);
 		// Conexão
 		String host = getHost(address);
 		address = getAddressPath(address);
@@ -215,7 +218,7 @@ public class Spider {
 						"Host:%s\r\n\r\n", address, host);
 				sock.out.write(requisition.getBytes());
 
-				return readHttpHeader(sock).getCode();
+				return readHeaderHttp(sock).getCode();
 			} catch (SocketException e) {
 				// Se houve erros na tentativa de comunicação, força a recriação
 				// do socket.
@@ -228,6 +231,7 @@ public class Spider {
 	}
 
 	protected Page httpGet(String address) throws IOException {
+		System.out.println("GET " + address);
 		// Conexão
 		address = getAddressPath(address);
 		SpiderSocket sock = getSpiderSocket(this.baseHost);
@@ -241,7 +245,7 @@ public class Spider {
 						"Host:%s\r\n\r\n", address, this.baseHost);
 				sock.out.write(requisition.getBytes());
 
-				header = readHttpHeader(sock);
+				header = readHeaderHttp(sock);
 				break;
 			} catch (SocketException e) {
 				// Se houve erros na tentativa de comunicação, força a recriação
@@ -253,7 +257,7 @@ public class Spider {
 
 		// Tentativas falharam
 		if (header == null)
-			return new Page(0, null);
+			return new Page(0, EMPTY_CONTENT);
 
 		if (header.getHttpVersion().equals("HTTP/1.0")) {
 			return http10GetContent(sock, header);
@@ -267,13 +271,15 @@ public class Spider {
 				header.getHttpVersion()));
 	}
 
-	private Header readHttpHeader(SpiderSocket sock) throws IOException {
+	private Header readHeaderHttp(SpiderSocket sock) throws IOException {
 		final StringBuilder sbHeader = new StringBuilder(500);
 
 		// Obtém inicialmente quatro bytes para não gerar exceção no while
 		int c = sock.in.read();
 		if (c == -1)
 			throw new SocketException("Problema nesse socket");
+		if (c != 'H')
+			throw new SocketException("Não foi possível obter o cabeçalho");
 		sbHeader.append((char) c);
 		for (int i = 0; i < 3; i++)
 			sbHeader.append((char) sock.in.read());
@@ -291,20 +297,19 @@ public class Spider {
 
 		// Content-Length e Transfer-Encoding
 		int clength = -1;
+		String ctype = "";
 		boolean chunked = false;
 		for (int i = 1; i < headerLines.length; i++) {
 			final String line = headerLines[i];
-			if (CLENGTH_REGEX.matcher(line).lookingAt()) {
+			if (CLENGTH_REGEX.matcher(line).lookingAt())
 				clength = Integer.parseInt(line.split(":")[1].trim());
-				break;
-			}
-			else if (CHUNKED_REGEX.matcher(line).matches()) {
+			else if (CTYPE_REGEX.matcher(line).lookingAt())
+				ctype = line.split(":")[1].trim();
+			else if (CHUNKED_REGEX.matcher(line).matches())
 				chunked = true;
-				break;
-			}
 		}
 
-		return new Header(protocol, code, clength, chunked);
+		return new Header(protocol, code, clength, ctype, chunked);
 	}
 
 	/**
@@ -317,19 +322,18 @@ public class Spider {
 	 *   inviabilizaria o Agente Spider.
 	 */
 	private Page http11GetContent(SpiderSocket sock, Header header) throws IOException {
+		// Se o header Transfer-Encoding: chunked foi encontrado
+		if (header.isChunked())
+			return http11GetContentChunked(sock, header);
+
 		// Se o header Content-Length foi encontrado
 		if (header.getContentLength() != -1)
 			return http11GetContentByLength(sock, header);
 
-		// Se o header Transfer-Encoding: chunked foi encontrado
-		else if (header.isChunked())
-			return http11GetContentChunked(sock, header);
-
 		/* Se não foi encontrado nada que indique onde parar, tenta obter com
 		 * o algoritmo de HTTP/1.0, habilitando o timeout para não bloquear.
 		 */
-		else
-			return http10GetContent(sock, header, 2000);
+		return http10GetContent(sock, header, 2000);
 	}
 
 	private Page http11GetContentChunked(SpiderSocket sock, Header header) throws IOException {
@@ -342,21 +346,38 @@ public class Spider {
 
 		int chunkSize = Integer.parseInt(sb.toString().trim(), 16);
 
-		ByteArrayOutputStream content = new ByteArrayOutputStream(BUF_SIZE);
-		while (chunkSize > 0) {
-			final byte[] buf = new byte[chunkSize];
-			do {
-				final int bytesRead = sock.in.read(buf, 0, chunkSize);
-				content.write(buf, 0, bytesRead);
-				chunkSize -= bytesRead;
-			} while (chunkSize > 0);
-			sock.in.skip(2);
-			// Pega tamanho do próximo chunk
-			sb.setLength(0);
-			while ((c=(char) sock.in.read()) != '\n')
-				sb.append(c);
-			chunkSize = Integer.parseInt(sb.toString().trim(), 16);
-		}
+		OutputStream content = null;
+		boolean isHtml = false;
+		if (header.getContentType().startsWith("text/html")) {
+			content = new ByteArrayOutputStream(BUF_SIZE);
+			isHtml = true;
+		} else
+			content = NullOutputStream.NULL_STREAM;
+
+		if (isHtml)
+			while (chunkSize > 0) {
+				final byte[] buf = new byte[chunkSize];
+				do {
+					final int bytesRead = sock.in.read(buf, 0, chunkSize);
+					content.write(buf, 0, bytesRead);
+					chunkSize -= bytesRead;
+				} while (chunkSize > 0);
+				sock.in.skip(2);
+				// Pega tamanho do próximo chunk
+				sb.setLength(0);
+				while ((c=(char) sock.in.read()) != '\n')
+					sb.append(c);
+				chunkSize = Integer.parseInt(sb.toString().trim(), 16);
+			}
+		else
+			while (chunkSize > 0) {
+				sock.in.skip(chunkSize + 2);
+				// Pega tamanho do próximo chunk
+				sb.setLength(0);
+				while ((c=(char) sock.in.read()) != '\n')
+					sb.append(c);
+				chunkSize = Integer.parseInt(sb.toString().trim(), 16);
+			}
 		sock.in.skip(2);
 
 		return new Page(header.getCode(), content.toString());
@@ -364,23 +385,26 @@ public class Spider {
 
 	private Page http11GetContentByLength(SpiderSocket sock, Header header)
 			throws IOException {
-		if (header.getContentLength() == 0) {
+		int clength = header.getContentLength();
+		if (clength == 0) {
 			sock.in.skip(2);
 			return new Page(header.getCode(), EMPTY_CONTENT);
 		}
-		else {
-			int clength = header.getContentLength();
-			final byte[] buf = new byte[(clength < BUF_SIZE) ? clength : BUF_SIZE];
-			ByteArrayOutputStream content = new ByteArrayOutputStream(buf.length);
-
-			do {
-				final int bytesRead = sock.in.read(buf, 0, (clength < BUF_SIZE) ? clength : BUF_SIZE);
-				clength -= bytesRead;
-				content.write(buf, 0, bytesRead);
-			} while (clength > 0);
-
-			return new Page(header.getCode(), content.toString());
+		else if (!header.getContentType().startsWith("text/html")) {
+			sock.in.skip(clength);
+			return new Page(header.getCode(), EMPTY_CONTENT);
 		}
+
+		final byte[] buf = new byte[(clength < BUF_SIZE) ? clength : BUF_SIZE];
+		ByteArrayOutputStream content = new ByteArrayOutputStream(buf.length);
+
+		do {
+			final int bytesRead = sock.in.read(buf, 0, (clength < BUF_SIZE) ? clength : BUF_SIZE);
+			clength -= bytesRead;
+			content.write(buf, 0, bytesRead);
+		} while (clength > 0);
+
+		return new Page(header.getCode(), content.toString());
 	}
 
 	private Page http10GetContent(SpiderSocket sock, Header header) throws IOException {
@@ -389,8 +413,8 @@ public class Spider {
 
 	private Page http10GetContent(SpiderSocket sock, Header header, int timeout) throws IOException {
 		sock.realSock.setSoTimeout(timeout);
-		if (header.getCode() != 200)
-			return new Page(header.getCode(), null);
+		if (header.getCode() != 200 || !header.getContentType().startsWith("text/html"))
+			return new Page(header.getCode(), EMPTY_CONTENT);
 
 		final byte[] buf = new byte[BUF_SIZE];
 		ByteArrayOutputStream content = new ByteArrayOutputStream(BUF_SIZE);
@@ -509,11 +533,13 @@ class Header {
 	private final int code;
 	private final int clength;
 	private final boolean chunked;
+	private String ctype;
 
-	public Header(String version, int code, int clength, boolean chunked) {
+	public Header(String version, int code, int clength, String ctype, boolean chunked) {
 		this.version = version;
 		this.code = code;
 		this.clength = clength;
+		this.ctype = ctype;
 		this.chunked = chunked;
 	}
 
@@ -527,6 +553,10 @@ class Header {
 
 	public int getContentLength() {
 		return this.clength;
+	}
+
+	public String getContentType() {
+		return ctype;
 	}
 
 	public boolean isChunked() {
@@ -560,5 +590,29 @@ class SpiderSocket {
 class NormalizationException extends Exception {
 	public NormalizationException(String message) {
 		super(message);
+	}
+}
+
+class NullOutputStream extends OutputStream {
+	public static final OutputStream NULL_STREAM = new NullOutputStream();
+
+	@Override
+	public void write(int b) throws IOException {
+		// Ignora quaisquer entradas
+	}
+
+	@Override
+	public void write(byte[] b) throws IOException {
+		// Ignora quaisquer entradas
+	}
+
+	@Override
+	public void write(byte[] b, int off, int len) throws IOException {
+		// Ignora quaisquer entradas
+	}
+
+	@Override
+	public String toString() {
+		return "";
 	}
 }
