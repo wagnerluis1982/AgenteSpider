@@ -4,14 +4,13 @@ import java.util.regex.Pattern;
 class Link {
 	private String pageUrl;
 	private String linkTo;
-	private String noAnchorLinkTo;
 	private int line;
 
 	private static Pattern NOANCHOR_REGEX = Pattern.compile("^(.*?)#");
 
 	public Link(final String pageUrl, final String linkTo, final int line) {
 		this.pageUrl = pageUrl;
-		this.linkTo = linkTo;
+		setLinkTo(linkTo);
 		this.line = line;
 	}
 
@@ -23,13 +22,9 @@ class Link {
 		return linkTo;
 	}
 
-	public String getNoAnchorLinkTo() {
-		if (this.noAnchorLinkTo == null) {
-			Matcher matcher = NOANCHOR_REGEX.matcher(this.linkTo);
-			this.noAnchorLinkTo = matcher.find() ? matcher.group(1) : this.linkTo;
-		}
-
-		return this.noAnchorLinkTo;
+	private void setLinkTo(String linkTo) {
+		Matcher matcher = NOANCHOR_REGEX.matcher(linkTo);
+		this.linkTo = matcher.find() ? matcher.group(1) : linkTo;
 	}
 
 	public int getLine() {
