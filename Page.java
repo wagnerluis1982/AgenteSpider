@@ -1,11 +1,13 @@
+import java.util.List;
+
 
 class Page {
 	private final Header header;
-	private final SpiderSocket content;
+	private final List<Link> links;
 
-	public Page(Header header, SpiderSocket sock) {
+	public Page(Header header, List<Link> links) {
 		this.header = header;
-		this.content = sock;
+		this.links = links;
 	}
 
 	public int getStatusCode() {
@@ -16,7 +18,7 @@ class Page {
 		return header.getContentType();
 	}
 
-	public SpiderSocket getContent() {
-		return content;
+	public List<Link> getLinks() {
+		return links;
 	}
 }

@@ -30,6 +30,9 @@ public class Spider {
 			"^content-type:\\s*(?<ctype>[a-z\\-/]+)",
 			Pattern.CASE_INSENSITIVE | Pattern.MULTILINE);
 
+	// Other constants
+	private static final List<Link> NO_LINKS = Collections.emptyList();
+
 	protected final String baseAddress;
 	private final String baseHost;
 	protected final List<InvalidLink> invalids = Collections.synchronizedList(new ArrayList<InvalidLink>());
@@ -224,13 +227,16 @@ public class Spider {
 
 		Header header = readHeaderHttp(sock);
 
-		// Se o tipo do conteúdo não for HTML, despreza a conexão
-		if (!header.getContentType().equals("text/html")) {
+		// Se o código de status não é 200 ou o content-type não é HTML, despreza a conexão
+		if (header.getStatusCode() != 200 || !header.getContentType().equals("text/html")) {
 			sock.getRealSock().close();
-			return new Page(header, null);
+			return new Page(header, NO_LINKS);
 		}
 
-		return new Page(header, sock);
+		// Obtém a lista de links desse endereço
+		List<Link> links = findLinks(sock, address);
+
+		return new Page(header, links);
 	}
 
 	private Header readHeaderHttp(SpiderSocket sock) throws IOException {
@@ -259,7 +265,7 @@ public class Spider {
 	}
 
 	protected List<InvalidLink> invalidLinks(Link link) {
-		Page page;
+		final Page page;
 		try {
 			page = httpGet(link.getLinkTo());
 
@@ -270,10 +276,6 @@ public class Spider {
 				}
 				return this.invalids;
 			}
-
-			// Se o content-type diferente de html, retorna sem verificar links
-			if (!page.getContentType().equals("text/html"))
-				return this.invalids;
 		} catch (IOException e) {
 			// Erro de DNS
 			synchronized (this.invalids) {
@@ -282,20 +284,20 @@ public class Spider {
 			return this.invalids;
 		}
 
-		for (Link found : findLinks(page.getContent(), link.getLinkTo())) {
-			String foundLinkTo = found.getLinkTo();
+		for (final Link found : page.getLinks()) {
+			final String linkTo = found.getLinkTo();
 			synchronized (this.viewed) {
-				if (this.viewed.contains(foundLinkTo))
+				if (this.viewed.contains(linkTo))
 					continue;
 				else
-					this.viewed.add(foundLinkTo);
+					this.viewed.add(linkTo);
 			}
 
 			try {
-				if (found.getLinkTo().startsWith(this.baseAddress))
+				if (linkTo.startsWith(this.baseAddress))
 					invalidLinks(found);  // chamada recursiva
 				else {
-					int code = httpHead(found.getLinkTo()).getStatusCode();
+					int code = httpHead(linkTo).getStatusCode();
 					if (code != 200) synchronized (this.invalids) {
 						this.invalids.add(new InvalidLink(found, code));
 					}
