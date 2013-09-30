@@ -203,9 +203,11 @@ public class Spider {
 				"Connection: close\r\n" +
 				"\r\n", address, host);
 		sock.getOutput().write(requisition.getBytes());
+
+		Header header = readHeaderHttp(sock);
 		sock.getRealSock().close();
 
-		return readHeaderHttp(sock);
+		return header;
 	}
 
 	private Page httpGet(String address) throws IOException {
