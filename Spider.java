@@ -1,7 +1,7 @@
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.StringReader;
+import java.io.LineNumberReader;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -29,9 +29,6 @@ public class Spider {
 			"^HTTP/(?<version>[.0-9]+) (?<code>[0-9]+)|" +
 			"^content-type:\\s*(?<ctype>[a-z\\-/]+)",
 			Pattern.CASE_INSENSITIVE | Pattern.MULTILINE);
-
-	// Other constants
-	private static final String EMPTY_CONTENT = "";
 
 	private final String baseAddress;
 	private final String baseHost;
@@ -164,24 +161,25 @@ public class Spider {
 	 * Obtém todos os links em uma página HTML, passada como argumento através
 	 * de um {@link InputStream}.
 	 *
-	 * @param content Página HTML
+	 * @param sock Página HTML
 	 * @return Lista de links encontrados
 	 * @throws IOException se ocorrer um erro de E/S
 	 */
-	private List<Link> findLinks(final CharSequence content, String address) {
+	private List<Link> findLinks(final SpiderSocket sock, String address) {
 		final List<Link> foundLinks = new ArrayList<>();
 
-		BufferedReader buffer = new BufferedReader(new StringReader(content.toString()));
 		String line;
 		try {
-			for (int lineno = 1; (line=buffer.readLine()) != null; lineno++) {
+			LineNumberReader input = sock.getInput();
+			while ((line=input.readLine()) != null) {
 				final Matcher matcher = HREF_REGEX.matcher(line);
 				while (matcher.find()) {
 					String linkTo = absoluteLink(matcher.group(1));
 					if (linkTo != null)
-						foundLinks.add(new Link(address, linkTo, lineno));
+						foundLinks.add(new Link(address, linkTo, input.getLineNumber()));
 				}
 			}
+			sock.getRealSock().close();
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
@@ -227,17 +225,10 @@ public class Spider {
 		// Se o tipo do conteúdo não for HTML, despreza a conexão
 		if (!header.getContentType().equals("text/html")) {
 			sock.getRealSock().close();
-			return new Page(header, EMPTY_CONTENT);
+			return new Page(header, null);
 		}
 
-		BufferedReader sockInput = sock.getInput();
-		StringBuilder content = new StringBuilder();
-		String line;
-		while ((line=sockInput.readLine()) != null)
-			content.append(line).append(System.lineSeparator());
-		sock.getRealSock().close();
-
-		return new Page(header, content);
+		return new Page(header, sock);
 	}
 
 	private Header readHeaderHttp(SpiderSocket sock) throws IOException {
@@ -267,25 +258,27 @@ public class Spider {
 
 	private List<InvalidLink> invalidLinks(Link link) {
 		Page page;
-		synchronized (this.invalids) {
-			try {
-				String noAnchorLinkTo = link.getLinkTo();
-				page = httpGet(noAnchorLinkTo);
+		try {
+			String linkTo = link.getLinkTo();
+			page = httpGet(linkTo);
 
-				// Se retorna algo diferente de 200, nem mesmo verifica o content-type
-				if (page.getStatusCode() != 200) {
+			// Se retorna algo diferente de 200, nem mesmo verifica o content-type
+			if (page.getStatusCode() != 200) {
+				synchronized (this.invalids) {
 					this.invalids.add(new InvalidLink(link, page.getStatusCode()));
-					return this.invalids;
 				}
-
-				// Se o content-type diferente de html, retorna sem verificar links
-				if (!page.getContentType().equals("text/html"))
-					return this.invalids;
-			} catch (IOException e) {
-				// Erro de DNS
-				this.invalids.add(new InvalidLink(link, 0));
 				return this.invalids;
 			}
+
+			// Se o content-type diferente de html, retorna sem verificar links
+			if (!page.getContentType().equals("text/html"))
+				return this.invalids;
+		} catch (IOException e) {
+			// Erro de DNS
+			synchronized (this.invalids) {
+				this.invalids.add(new InvalidLink(link, 0));
+			}
+			return this.invalids;
 		}
 
 		for (Link found : findLinks(page.getContent(), link.getLinkTo())) {
@@ -301,10 +294,9 @@ public class Spider {
 					invalidLinks(found);  // chamada recursiva
 				else {
 					int code = httpHead(found.getLinkTo()).getStatusCode();
-					if (code != 200)
-						synchronized (this.invalids) {
-							this.invalids.add(new InvalidLink(found, code));
-						}
+					if (code != 200) synchronized (this.invalids) {
+						this.invalids.add(new InvalidLink(found, code));
+					}
 				}
 			} catch (IOException e) {
 				// Erro de rede (DNS, etc)

@@ -1,11 +1,11 @@
 
 class Page {
 	private final Header header;
-	private final CharSequence content;
+	private final SpiderSocket content;
 
-	public Page(Header header, CharSequence content) {
+	public Page(Header header, SpiderSocket sock) {
 		this.header = header;
-		this.content = content;
+		this.content = sock;
 	}
 
 	public int getStatusCode() {
@@ -16,7 +16,7 @@ class Page {
 		return header.getContentType();
 	}
 
-	public CharSequence getContent() {
+	public SpiderSocket getContent() {
 		return content;
 	}
 }
