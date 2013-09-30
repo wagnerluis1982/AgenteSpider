@@ -30,10 +30,10 @@ public class Spider {
 			"^content-type:\\s*(?<ctype>[a-z\\-/]+)",
 			Pattern.CASE_INSENSITIVE | Pattern.MULTILINE);
 
-	private final String baseAddress;
+	protected final String baseAddress;
 	private final String baseHost;
-	private final List<InvalidLink> invalids = Collections.synchronizedList(new ArrayList<InvalidLink>());
-	private Set<String> viewed = Collections.synchronizedSet(new HashSet<String>());
+	protected final List<InvalidLink> invalids = Collections.synchronizedList(new ArrayList<InvalidLink>());
+	private final Set<String> viewed = Collections.synchronizedSet(new HashSet<String>());
 
 	// Construtor
 	public Spider(String baseAddress) {
@@ -191,7 +191,7 @@ public class Spider {
 		return new SpiderSocket(new Socket(host, 80));
 	}
 
-	private Header httpHead(String address) throws IOException {
+	protected Header httpHead(String address) throws IOException {
 		// Conexão
 		String host = getHost(address);
 		address = getAddressPath(address);
@@ -258,11 +258,10 @@ public class Spider {
 		return new Header(headerFields);
 	}
 
-	private List<InvalidLink> invalidLinks(Link link) {
+	protected List<InvalidLink> invalidLinks(Link link) {
 		Page page;
 		try {
-			String linkTo = link.getLinkTo();
-			page = httpGet(linkTo);
+			page = httpGet(link.getLinkTo());
 
 			// Se retorna algo diferente de 200, nem mesmo verifica o content-type
 			if (page.getStatusCode() != 200) {
@@ -284,11 +283,12 @@ public class Spider {
 		}
 
 		for (Link found : findLinks(page.getContent(), link.getLinkTo())) {
+			String foundLinkTo = found.getLinkTo();
 			synchronized (this.viewed) {
-				if (this.viewed.contains(found.getLinkTo()))
+				if (this.viewed.contains(foundLinkTo))
 					continue;
 				else
-					this.viewed.add(found.getLinkTo());
+					this.viewed.add(foundLinkTo);
 			}
 
 			try {
