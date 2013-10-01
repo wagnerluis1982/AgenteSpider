@@ -43,9 +43,6 @@ public class Spider {
 
 	// Construtor
 	public Spider(String baseAddress) {
-		if (baseAddress == null)
-			throw new NullPointerException();
-
 		baseAddress = baseAddress.trim();
 		if (!isValidArg(baseAddress))
 			throw new IllegalArgumentException("O argumento dever ser um " +
@@ -60,10 +57,7 @@ public class Spider {
 	}
 
 	private boolean isValidArg(final String address) {
-		if (Pattern.matches("^http://[^'\" ]+/$", address))
-			return true;
-
-		return false;
+		return Pattern.matches("^http://[^'\" ]+/$", address);
 	}
 
 	private String getHost(String address) {
