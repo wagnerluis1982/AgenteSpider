@@ -275,7 +275,7 @@ public class Spider {
 		Thread threadGet = new SpiderThreadGet(this, link);
 		try {
 			this.workQueue.submit(threadGet);
-			this.workQueue.awaitEnd();
+			this.workQueue.executeAndWait();
 		} catch (InterruptedException e) {
 		}
 

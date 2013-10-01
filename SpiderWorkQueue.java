@@ -13,7 +13,7 @@ class SpiderWorkQueue {
 		waitQueue = new ArrayDeque<>();
 	}
 
-	public void awaitEnd() throws InterruptedException {
+	public void executeAndWait() throws InterruptedException {
 		while (!waitQueue.isEmpty() || !taskQueue.isEmpty()) {
 			Thread t = waitQueue.poll();
 			if (t != null) {
