@@ -14,8 +14,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
 import java.util.Set;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
 
 public class Spider {
 	// Regex constants
@@ -32,11 +36,14 @@ public class Spider {
 
 	// Other constants
 	private static final List<Link> NO_LINKS = Collections.emptyList();
+	private static final List<InvalidLink> NO_INVALID_LINKS = Collections.emptyList();
 
 	protected final String baseAddress;
 	private final String baseHost;
 	protected final List<InvalidLink> invalids = Collections.synchronizedList(new ArrayList<InvalidLink>());
-	private final Set<String> viewed = Collections.synchronizedSet(new HashSet<String>());
+	protected final Set<String> viewed = Collections.synchronizedSet(new HashSet<String>());
+
+	protected final SpiderWorkQueue workQueue;
 
 	// Construtor
 	public Spider(String baseAddress) {
@@ -50,6 +57,10 @@ public class Spider {
 
 		this.baseAddress = baseAddress;
 		this.baseHost = getHost(baseAddress);
+
+		// Obtém a quantidade de núcleos e define duas tarefas para cada núcleo
+		int availableCpus = Runtime.getRuntime().availableProcessors();
+		this.workQueue = new SpiderWorkQueue(availableCpus*2);
 	}
 
 	private boolean isValidArg(final String address) {
@@ -213,7 +224,7 @@ public class Spider {
 		return header;
 	}
 
-	private Page httpGet(String address) throws IOException {
+	protected Page httpGet(String address) throws IOException {
 		// Conexão
 		address = getAddressPath(address);
 		SpiderSocket sock = getSpiderSocket(this.baseHost);
@@ -265,49 +276,12 @@ public class Spider {
 	}
 
 	protected List<InvalidLink> invalidLinks(Link link) {
-		final Page page;
+		Thread threadGet = new SpiderThreadGet(this, link);
 		try {
-			page = httpGet(link.getLinkTo());
-
-			// Se retorna algo diferente de 200, nem mesmo verifica o content-type
-			if (page.getStatusCode() != 200) {
-				synchronized (this.invalids) {
-					this.invalids.add(new InvalidLink(link, page.getStatusCode()));
-				}
-				return this.invalids;
-			}
-		} catch (IOException e) {
-			// Erro de DNS
-			synchronized (this.invalids) {
-				this.invalids.add(new InvalidLink(link, 0));
-			}
-			return this.invalids;
-		}
-
-		for (final Link found : page.getLinks()) {
-			final String linkTo = found.getLinkTo();
-			synchronized (this.viewed) {
-				if (this.viewed.contains(linkTo))
-					continue;
-				else
-					this.viewed.add(linkTo);
-			}
-
-			try {
-				if (linkTo.startsWith(this.baseAddress))
-					invalidLinks(found);  // chamada recursiva
-				else {
-					int code = httpHead(linkTo).getStatusCode();
-					if (code != 200) synchronized (this.invalids) {
-						this.invalids.add(new InvalidLink(found, code));
-					}
-				}
-			} catch (IOException e) {
-				// Erro de rede (DNS, etc)
-				synchronized (this.invalids) {
-					this.invalids.add(new InvalidLink(found, 0));
-				}
-			}
+			this.workQueue.submit(threadGet);
+			this.workQueue.awaitEnd();
+		} catch (InterruptedException e) {
+			return NO_INVALID_LINKS;
 		}
 
 		return this.invalids;
@@ -315,7 +289,7 @@ public class Spider {
 
 	public List<InvalidLink> invalidLinks() {
 		this.viewed.add(this.baseAddress);
-		return this.invalidLinks(new Link("sitebase", this.baseAddress, 0));
+		return invalidLinks(new Link("sitebase", this.baseAddress, 0));
 	}
 
 	public static void main(String[] args) throws IOException {
@@ -347,4 +321,161 @@ public class Spider {
 		System.out.println("TIME " + (System.currentTimeMillis() - startTime));
 	}
 
+}
+
+class SpiderThreadGet extends Thread {
+	private Spider spider;
+	private Link link;
+	private Page page;
+
+	public SpiderThreadGet(Spider spider, Link link) {
+		this.spider = spider;
+		this.link = link;
+	}
+
+	@Override
+	public void run() {
+		doGet();
+	}
+
+	private void doGet() {
+		try {
+			page = spider.httpGet(link.getLinkTo());
+
+			// Se retorna algo diferente de 200, nem mesmo verifica o content-type
+			if (page.getStatusCode() != 200) {
+				synchronized (spider.invalids) {
+					spider.invalids.add(new InvalidLink(link, page.getStatusCode()));
+				}
+			}
+		} catch (IOException e) {
+			// Erro de DNS
+			synchronized (spider.invalids) {
+				spider.invalids.add(new InvalidLink(link, 0));
+			}
+		}
+	}
+
+	public void dispatchLinks() {
+		for (final Link found : page.getLinks()) {
+			final String linkTo = found.getLinkTo();
+			synchronized (spider.viewed) {
+				if (spider.viewed.contains(linkTo))
+					continue;
+				else
+					spider.viewed.add(linkTo);
+			}
+
+			if (linkTo.startsWith(spider.baseAddress)) {
+				Thread threadGet = new SpiderThreadGet(spider, found);
+				spider.workQueue.submit(threadGet);
+			} else {
+				Thread threadHead = new SpiderThreadHead(spider, found);
+				spider.workQueue.submit(threadHead);
+			}
+		}
+	}
+}
+
+class SpiderThreadHead extends Thread {
+	private Spider spider;
+	private Link found;
+
+	public SpiderThreadHead(Spider spider, Link found) {
+		this.spider = spider;
+		this.found = found;
+	}
+
+	@Override
+	public void run() {
+		doHead();
+	}
+
+	private void doHead() {
+		try {
+			int code = spider.httpHead(found.getLinkTo()).getStatusCode();
+			if (code != 200) {
+				synchronized (spider.invalids) {
+					spider.invalids.add(new InvalidLink(found, code));
+				}
+			}
+		} catch (IOException e) {
+			// Erro de rede (DNS, etc)
+			synchronized (spider.invalids) {
+				spider.invalids.add(new InvalidLink(found, 0));
+			}
+		}
+
+	}
+}
+
+class SpiderWorkQueue {
+	private ReentrantLock access;
+	private BlockingQueue<Thread> queue;
+
+	public SpiderWorkQueue(int capacity) {
+		queue = new ArrayBlockingQueue<>(capacity, true);
+		access = new ReentrantLock(true);
+	}
+
+	public void awaitEnd() throws InterruptedException {
+		while (!queue.isEmpty()) {
+			Iterator<Thread> it = queue.iterator();
+			while (it.hasNext()) {
+				Thread thread = it.next();
+				if (!thread.isAlive()) {
+					try {
+						it.remove();
+						if (thread instanceof SpiderThreadGet)
+							((SpiderThreadGet) thread).dispatchLinks();
+					} catch (IllegalStateException e) {
+						// já foi removido pela ação de adicionar
+					}
+				}
+			}
+			Thread.sleep(50);
+		}
+	}
+
+	public boolean submit(Thread elem) {
+		access.lock();
+
+		// Se não pôde adicionar, então a fila está cheia. Assim, removemos
+		// antes pelo menos uma thread finalizada.
+		if (!queue.offer(elem)) {
+			Iterator<Thread> it = queue.iterator();
+			int removed = 0;
+			while (true) {
+				if (!it.hasNext()) {
+					if (removed > 0)
+						break;
+					it = queue.iterator();
+					try {
+						Thread.sleep(50);
+					} catch (InterruptedException e) {
+					}
+				}
+
+				Thread thread = it.next();
+				if (!thread.isAlive()) {
+					try {
+						removed++;
+						it.remove();
+						if (thread instanceof SpiderThreadGet)
+							((SpiderThreadGet) thread).dispatchLinks();
+					} catch (IllegalStateException e) {
+						// já foi removido pela ação de esperar
+					}
+				}
+			}
+		}
+
+		// Adicionamos à fila e executamos
+		queue.offer(elem);
+		elem.start();
+
+		access.unlock();
+
+		return true;
+	}
 }
