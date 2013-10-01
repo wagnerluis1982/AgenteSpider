@@ -15,7 +15,6 @@ import java.util.Scanner;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -333,6 +332,7 @@ class SpiderThreadGet extends Thread {
 	@Override
 	public void run() {
 		doGet();
+		spider.workQueue.remove(this);
 	}
 
 	private void doGet() {
@@ -387,6 +387,7 @@ class SpiderThreadHead extends Thread {
 	@Override
 	public void run() {
 		doHead();
+		spider.workQueue.remove(this);
 	}
 
 	private void doHead() {
@@ -408,68 +409,33 @@ class SpiderThreadHead extends Thread {
 }
 
 class SpiderWorkQueue {
-	private ReentrantLock access;
 	private BlockingQueue<Thread> queue;
 
 	public SpiderWorkQueue(int capacity) {
 		queue = new ArrayBlockingQueue<>(capacity, true);
-		access = new ReentrantLock(true);
 	}
 
 	public void awaitEnd() throws InterruptedException {
-		while (!queue.isEmpty()) {
-			Iterator<Thread> it = queue.iterator();
-			while (it.hasNext()) {
-				Thread thread = it.next();
-				if (!thread.isAlive()) {
-					try {
-						it.remove();
-					} catch (IllegalStateException e) {
-						// já foi removido pela ação de adicionar
-					}
-				}
-			}
+		do {
 			Thread.sleep(1);
-		}
+		} while (!queue.isEmpty());
 	}
 
-	public boolean submit(Thread elem) {
-		access.lock();
-
-		// Se não pôde adicionar, então a fila está cheia. Assim, removemos
-		// antes pelo menos uma thread finalizada.
-		if (!queue.offer(elem)) {
-			Iterator<Thread> it = queue.iterator();
-			int removed = 0;
-			while (true) {
-				if (!it.hasNext()) {
-					if (removed > 0)
-						break;
-					it = queue.iterator();
-					try {
-						Thread.sleep(1);
-					} catch (InterruptedException e) {
-					}
-				}
-
-				Thread thread = it.next();
-				if (!thread.isAlive()) {
-					try {
-						removed++;
-						it.remove();
-					} catch (IllegalStateException e) {
-						// já foi removido pela ação de esperar
-					}
+	public void submit(final Thread elem) {
+		Thread putThread = new Thread(new Runnable() {
+			@Override
+			public void run() {
+				try {
+					queue.put(elem);
+					elem.start();
+				} catch (InterruptedException e) {
 				}
 			}
-		}
+		});
+		putThread.start();
+	}
 
-		// Adicionamos à fila e executamos
-		queue.offer(elem);
-		elem.start();
-
-		access.unlock();
-
-		return true;
+	public boolean remove(Thread finished) {
+		return queue.remove(finished);
 	}
 }
