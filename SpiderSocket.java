@@ -1,18 +1,18 @@
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.io.LineNumberReader;
 import java.io.OutputStream;
 import java.net.Socket;
 
 
 class SpiderSocket {
 	private final Socket realSock;
-	private final LineNumberReader input;
+	private final BufferedReader input;
 	private final OutputStream output;
 
 	public SpiderSocket(Socket sock) throws IOException {
 		this.realSock = sock;
-		this.input = new LineNumberReader(new InputStreamReader(sock.getInputStream()));
+		this.input = new BufferedReader(new InputStreamReader(sock.getInputStream()));
 		this.output = sock.getOutputStream();
 	}
 
@@ -20,7 +20,7 @@ class SpiderSocket {
 		return realSock;
 	}
 
-	public LineNumberReader getInput() {
+	public BufferedReader getInput() {
 		return input;
 	}
 

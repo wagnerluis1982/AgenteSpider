@@ -1,7 +1,6 @@
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.LineNumberReader;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -37,7 +36,6 @@ public class Spider {
 
 	// Other constants
 	private static final List<Link> NO_LINKS = Collections.emptyList();
-	private static final List<InvalidLink> NO_INVALID_LINKS = Collections.emptyList();
 
 	protected final String baseAddress;
 	private final String baseHost;
@@ -185,7 +183,7 @@ public class Spider {
 
 		String line;
 		try {
-			LineNumberReader input = sock.getInput();
+			BufferedReader input = sock.getInput();
 			for (int lineno = 1; (line=input.readLine()) != null; lineno++) {
 				final Matcher matcher = HREF_REGEX.matcher(line);
 				while (matcher.find()) {
@@ -282,7 +280,6 @@ public class Spider {
 			this.workQueue.submit(threadGet);
 			this.workQueue.awaitEnd();
 		} catch (InterruptedException e) {
-			return NO_INVALID_LINKS;
 		}
 
 		return this.invalids;
@@ -327,7 +324,6 @@ public class Spider {
 class SpiderThreadGet extends Thread {
 	private Spider spider;
 	private Link link;
-	private Page page;
 
 	public SpiderThreadGet(Spider spider, Link link) {
 		this.spider = spider;
@@ -340,6 +336,7 @@ class SpiderThreadGet extends Thread {
 	}
 
 	private void doGet() {
+		Page page;
 		try {
 			page = spider.httpGet(link.getLinkTo());
 
@@ -348,16 +345,16 @@ class SpiderThreadGet extends Thread {
 				synchronized (spider.invalids) {
 					spider.invalids.add(new InvalidLink(link, page.getStatusCode()));
 				}
+				return;
 			}
 		} catch (IOException e) {
 			// Erro de DNS
 			synchronized (spider.invalids) {
 				spider.invalids.add(new InvalidLink(link, 0));
 			}
+			return;
 		}
-	}
 
-	public void dispatchLinks() {
 		for (final Link found : page.getLinks()) {
 			final String linkTo = found.getLinkTo();
 			synchronized (spider.viewed) {
@@ -427,8 +424,6 @@ class SpiderWorkQueue {
 				if (!thread.isAlive()) {
 					try {
 						it.remove();
-						if (thread instanceof SpiderThreadGet)
-							((SpiderThreadGet) thread).dispatchLinks();
 					} catch (IllegalStateException e) {
 						// já foi removido pela ação de adicionar
 					}
@@ -462,8 +457,6 @@ class SpiderWorkQueue {
 					try {
 						removed++;
 						it.remove();
-						if (thread instanceof SpiderThreadGet)
-							((SpiderThreadGet) thread).dispatchLinks();
 					} catch (IllegalStateException e) {
 						// já foi removido pela ação de esperar
 					}
