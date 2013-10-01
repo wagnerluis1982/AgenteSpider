@@ -13,8 +13,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Scanner;
 import java.util.Set;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -405,37 +403,5 @@ class SpiderThreadHead extends Thread {
 			}
 		}
 
-	}
-}
-
-class SpiderWorkQueue {
-	private BlockingQueue<Thread> queue;
-
-	public SpiderWorkQueue(int capacity) {
-		queue = new ArrayBlockingQueue<>(capacity, true);
-	}
-
-	public void awaitEnd() throws InterruptedException {
-		do {
-			Thread.sleep(1);
-		} while (!queue.isEmpty());
-	}
-
-	public void submit(final Thread elem) {
-		Thread putThread = new Thread(new Runnable() {
-			@Override
-			public void run() {
-				try {
-					queue.put(elem);
-					elem.start();
-				} catch (InterruptedException e) {
-				}
-			}
-		});
-		putThread.start();
-	}
-
-	public boolean remove(Thread finished) {
-		return queue.remove(finished);
 	}
 }
