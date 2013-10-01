@@ -177,12 +177,11 @@ public class Spider {
 	 * @return Lista de links encontrados
 	 * @throws IOException se ocorrer um erro de E/S
 	 */
-	private List<Link> findLinks(final SpiderSocket sock, String address) {
+	private List<Link> findLinks(final BufferedReader input, String address) {
 		final List<Link> foundLinks = new ArrayList<>();
 
 		String line;
 		try {
-			BufferedReader input = sock.getInput();
 			for (int lineno = 1; (line=input.readLine()) != null; lineno++) {
 				final Matcher matcher = HREF_REGEX.matcher(line);
 				while (matcher.find()) {
@@ -191,7 +190,6 @@ public class Spider {
 						foundLinks.add(new Link(address, linkTo, lineno));
 				}
 			}
-			sock.getRealSock().close();
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
@@ -216,7 +214,7 @@ public class Spider {
 				"\r\n", address, host);
 		sock.getOutput().write(requisition.getBytes());
 
-		Header header = readHeaderHttp(sock);
+		Header header = readHeaderHttp(sock.getInput());
 		sock.getRealSock().close();
 
 		return header;
@@ -234,7 +232,7 @@ public class Spider {
 				"\r\n", addressPath, this.baseHost);
 		sock.getOutput().write(requisition.getBytes());
 
-		Header header = readHeaderHttp(sock);
+		Header header = readHeaderHttp(sock.getInput());
 
 		// Se o código de status não é 200 ou o content-type não é HTML, despreza a conexão
 		if (header.getStatusCode() != 200 || !header.getContentType().equals("text/html")) {
@@ -243,17 +241,17 @@ public class Spider {
 		}
 
 		// Obtém a lista de links desse endereço
-		List<Link> links = findLinks(sock, address);
+		List<Link> links = findLinks(sock.getInput(), address);
+		sock.getRealSock().close();
 
 		return new Page(header, links);
 	}
 
-	private Header readHeaderHttp(SpiderSocket sock) throws IOException {
-		BufferedReader sockInput = sock.getInput();
+	private Header readHeaderHttp(BufferedReader input) throws IOException {
 		final StringBuilder sbHeader = new StringBuilder(500);
 
 		String line;
-		while ((line=sockInput.readLine()) != null && line.length() > 0)
+		while ((line=input.readLine()) != null && line.length() > 0)
 			sbHeader.append(line).append(System.lineSeparator());
 
 		Map<String, Object> headerFields = new Hashtable<>();
