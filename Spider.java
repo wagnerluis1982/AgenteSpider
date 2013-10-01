@@ -288,8 +288,6 @@ public class Spider {
 	}
 
 	public static void main(String[] args) throws IOException {
-		long startTime = System.currentTimeMillis();
-
 		String url;
 		if (args.length < 1) {
 			System.out.print("Digite um endereço: ");
@@ -299,6 +297,10 @@ public class Spider {
 			url = args[0];
 		}
 
+		// Inicia contagem só após obter o argumento
+		long startTime = System.currentTimeMillis();
+
+		// Instancia o Agente Spider
 		Spider spider = null;
 		try {
 			spider = new Spider(url);
@@ -307,12 +309,14 @@ public class Spider {
 			System.exit(1);
 		}
 
+		// Coleta todos os links inválidos e exibe no stdout
 		for (InvalidLink invalid : spider.invalidLinks()) {
 			Link link = invalid.getLink();
 			System.out.println(String.format("%s %03d %s %d",
 					link.getLinkTo(), invalid.getStatusCode(), link.getPageUrl(), link.getLine()));
 		}
 
+		// Exibe tempo de processamento em milissegundos
 		System.out.println("TIME " + (System.currentTimeMillis() - startTime));
 	}
 
