@@ -433,7 +433,7 @@ class SpiderWorkQueue {
 					}
 				}
 			}
-			Thread.sleep(50);
+			Thread.sleep(1);
 		}
 	}
 
@@ -451,7 +451,7 @@ class SpiderWorkQueue {
 						break;
 					it = queue.iterator();
 					try {
-						Thread.sleep(50);
+						Thread.sleep(1);
 					} catch (InterruptedException e) {
 					}
 				}
