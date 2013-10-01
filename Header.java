@@ -6,19 +6,13 @@ class Header {
 	public static String HTTP_VERSION = "version";
 	public static String STATUS_CODE = "code";
 	public static String CONTENT_TYPE = "ctype";
-
-	private static Map<String, Object> DEFAULT_FIELDS = new HashMap<>();
-	static {
-		DEFAULT_FIELDS.put(HTTP_VERSION, "");
-		DEFAULT_FIELDS.put(STATUS_CODE, 0);
-		DEFAULT_FIELDS.put(CONTENT_TYPE, "");
-	}
+	public static String TRANSFER_ENCODING = "tencoding";
 
 	private Map<String, Object> fields;
 
 	public Header(Map<String, Object> headerFields) {
 		if (headerFields == null)
-			this.fields = DEFAULT_FIELDS;
+			this.fields = new HashMap<>();
 		else
 			this.fields = new HashMap<>(headerFields);
 	}
@@ -51,5 +45,15 @@ class Header {
 		}
 
 		return (String) ctype;
+	}
+
+	public String getTransferEncoding() {
+		Object tencoding = this.fields.get(TRANSFER_ENCODING);
+		if (tencoding == null) {
+			tencoding = "";
+			this.fields.put(TRANSFER_ENCODING, tencoding);
+		}
+
+		return (String) tencoding;
 	}
 }

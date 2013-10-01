@@ -31,7 +31,8 @@ public class Spider {
 			"^http://.+?(/.*)$", Pattern.CASE_INSENSITIVE);
 	private static final Pattern HEADER_REGEX = Pattern.compile(
 			"^HTTP/(?<version>[.0-9]+) (?<code>[0-9]+)|" +
-			"^content-type:\\s*(?<ctype>[a-z\\-/]+)",
+			"^content-type:\\s*(?<ctype>[a-z\\-/]+)|" +
+			"^transfer-encoding:\\s*(?<tencoding>.+)$",
 			Pattern.CASE_INSENSITIVE | Pattern.MULTILINE);
 
 	// Other constants
@@ -185,12 +186,12 @@ public class Spider {
 		String line;
 		try {
 			LineNumberReader input = sock.getInput();
-			while ((line=input.readLine()) != null) {
+			for (int lineno = 1; (line=input.readLine()) != null; lineno++) {
 				final Matcher matcher = HREF_REGEX.matcher(line);
 				while (matcher.find()) {
 					String linkTo = absoluteLink(matcher.group(1));
 					if (linkTo != null)
-						foundLinks.add(new Link(address, linkTo, input.getLineNumber()));
+						foundLinks.add(new Link(address, linkTo, lineno));
 				}
 			}
 			sock.getRealSock().close();
