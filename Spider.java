@@ -90,36 +90,44 @@ public class Spider {
 	 * @return String com o link normalizado
 	 */
 	private String normalizedLink(String link) throws NormalizationException {
-		String[] split = link.split("/+");
-		if (split.length == 0)
+		// Se o link for apenas a barra indicando a raiz, não faz nada
+		if (link.equals("/"))
 			return link;
 
-		List<String> pieces = new LinkedList<>(Arrays.asList(split));
-		for (int i = 0; i < pieces.size(); ) {
-			if (pieces.get(i).equals("."))
-				pieces.remove(i);
-			else if (pieces.get(i).equals("..")) {
-				pieces.remove(i);
-				try {
-					pieces.remove(i-1);
-				} catch (IndexOutOfBoundsException e) {
+		// Link quebrado em pedaços. Ex: "http://link/to/x" => [http,link,to,x]
+		LinkedList<String> pieces = new LinkedList<>(Arrays.asList(link.split("/+")));
+
+		// Varre os pedaços ao contrário, do fim para o início
+		for (Iterator<String> it = pieces.descendingIterator(); it.hasNext();) {
+			String pie = it.next();
+			// Em relativo para o próprio diretório, basta remover esse
+			if (pie.equals("."))
+				it.remove();
+			// Já no relativo subindo ao pai, precisa remover esse e o próximo
+			else if (pie.equals("..")) {
+				it.remove();
+
+				// Se não houver próximo, então o link não está correto
+				if (!it.hasNext())
 					throw new NormalizationException("Link mal formado");
-				}
-				i--;
-			} else
-				i++;
+
+				// Removendo o diretório pai
+				it.next();
+				it.remove();
+			}
 		}
 
-		// Detectando links mal formados (sem host ou protocolo)
+		/* Detectando links mal formados */
+		// (link sem host ou protocolo)
 		if (link.startsWith("http:")) {
-			if (!pieces.get(0).equals("http:") || !pieces.get(1).equals(getHost(link)))
+			if (!pieces.getFirst().equals("http:") || !pieces.get(1).equals(getHost(link)))
 				throw new NormalizationException("Link mal formado");
 		}
-		// Detectando links mal formados (deixou de ser absoluto)
-		else if (link.startsWith("/") && !pieces.get(0).equals(""))
+		// (link deixou de ser raiz)
+		else if (link.startsWith("/") && !pieces.getFirst().equals(""))
 			throw new NormalizationException("Link mal formado");
 
-		// Juntando os pedaços do link
+		/* Juntando os pedaços do link, com os ajustes necessários */
 		StringBuffer path = new StringBuffer();
 		Iterator<String> it = pieces.iterator();
 
