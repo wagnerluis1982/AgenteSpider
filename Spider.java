@@ -226,14 +226,14 @@ public class Spider {
 
 	protected Page httpGet(String address) throws IOException {
 		// Conexão
-		address = getAddressPath(address);
+		String addressPath = getAddressPath(address);
 		SpiderSocket sock = getSpiderSocket(this.baseHost);
 
 		// Requisição
 		String requisition = String.format("GET %s HTTP/1.1\r\n" +
 				"Host:%s\r\n" +
 				"Connection: close\r\n" +
-				"\r\n", address, this.baseHost);
+				"\r\n", addressPath, this.baseHost);
 		sock.getOutput().write(requisition.getBytes());
 
 		Header header = readHeaderHttp(sock);
