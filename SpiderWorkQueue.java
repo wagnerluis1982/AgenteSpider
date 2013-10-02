@@ -5,19 +5,19 @@ import java.util.concurrent.BlockingQueue;
 
 
 class SpiderWorkQueue {
-	private BlockingQueue<Thread> taskQueue;
-	private Queue<Thread> waitQueue;
+	private BlockingQueue<WorkThread> jobQueue;
+	private Queue<WorkThread> waitQueue;
 
 	public SpiderWorkQueue(int capacity) {
-		taskQueue = new ArrayBlockingQueue<>(capacity, true);
+		jobQueue = new ArrayBlockingQueue<>(capacity, true);
 		waitQueue = new ArrayDeque<>();
 	}
 
 	public void executeAndWait() throws InterruptedException {
-		while (!(waitQueue.isEmpty() && taskQueue.isEmpty())) {
-			Thread t = waitQueue.poll();
+		while (!(waitQueue.isEmpty() && jobQueue.isEmpty())) {
+			WorkThread t = waitQueue.poll();
 			if (t != null) {
-				taskQueue.put(t);
+				jobQueue.put(t);
 				t.start();
 			} else {
 				Thread.sleep(1);
@@ -29,19 +29,15 @@ class SpiderWorkQueue {
 		waitQueue.offer(new WorkThread(spiderRunner));
 	}
 
-	private void remove(Thread finished) {
-		taskQueue.remove(finished);
-	}
-
 	private class WorkThread extends Thread {
-		public WorkThread(Runnable spiderThread) {
-			super(spiderThread);
+		public WorkThread(Runnable spiderRunner) {
+			super(spiderRunner);
 		}
 
 		@Override
 		public void run() {
 			super.run();
-			remove(this);
+			jobQueue.remove(this);
 		}
 	}
 
