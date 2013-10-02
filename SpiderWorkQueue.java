@@ -14,7 +14,7 @@ class SpiderWorkQueue {
 	}
 
 	public void executeAndWait() throws InterruptedException {
-		while (!waitQueue.isEmpty() || !taskQueue.isEmpty()) {
+		while (!(waitQueue.isEmpty() && taskQueue.isEmpty())) {
 			Thread t = waitQueue.poll();
 			if (t != null) {
 				taskQueue.put(t);

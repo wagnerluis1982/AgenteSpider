@@ -121,7 +121,7 @@ public class Spider {
 		/* Detectando links mal formados */
 		// (link sem host ou protocolo)
 		if (link.startsWith("http:")) {
-			if (!pieces.getFirst().equals("http:") || !pieces.get(1).equals(getHost(link)))
+			if (!(pieces.getFirst().equals("http:") && pieces.get(1).equals(getHost(link))))
 				throw new NormalizationException("Link mal formado");
 		}
 		// (link deixou de ser raiz)
