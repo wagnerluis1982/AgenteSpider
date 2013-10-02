@@ -6,11 +6,9 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
-import java.util.Hashtable;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
-import java.util.Map;
 import java.util.NoSuchElementException;
 import java.util.Scanner;
 import java.util.Set;
@@ -26,10 +24,6 @@ public class Spider {
 			"^http://([0-9a-z.\\-]+)", Pattern.CASE_INSENSITIVE);
 	private static final Pattern PATH_REGEX = Pattern.compile(
 			"^http://.+?(/.*)$", Pattern.CASE_INSENSITIVE);
-	private static final Pattern HEADER_REGEX = Pattern.compile(
-			"^HTTP/(?<version>[.0-9]+) (?<code>[0-9]+)|" +
-			"^content-type:\\s*(?<ctype>[a-z\\-/]+)",
-			Pattern.CASE_INSENSITIVE | Pattern.MULTILINE);
 
 	// Other constants
 	private static final List<Link> NO_LINKS = Collections.emptyList();
@@ -271,7 +265,7 @@ public class Spider {
 				"\r\n", address, host);
 		sock.getOutput().write(requisition.getBytes());
 
-		Header header = readHeaderHttp(sock.getInput());
+		Header header = new Header(sock.getInput());
 		sock.getRealSock().close();
 
 		return header;
@@ -289,7 +283,7 @@ public class Spider {
 				"\r\n", addressPath, this.baseHost);
 		sock.getOutput().write(requisition.getBytes());
 
-		Header header = readHeaderHttp(sock.getInput());
+		Header header = new Header(sock.getInput());
 
 		// Se o código de status não é 200 ou o content-type não é HTML, despreza a conexão
 		if (header.getStatusCode() != 200 || !header.getContentType().equals("text/html")) {
@@ -301,30 +295,6 @@ public class Spider {
 		Iterable<Link> links = findLinks(sock.getInput(), address);
 
 		return new Page(header, links);
-	}
-
-	private Header readHeaderHttp(BufferedReader input) throws IOException {
-		final StringBuilder sbHeader = new StringBuilder(500);
-
-		String line;
-		while ((line=input.readLine()) != null && line.length() > 0)
-			sbHeader.append(line).append(System.lineSeparator());
-
-		Map<String, Object> headerFields = new Hashtable<>();
-
-		// Obtém cabeçalho
-		Matcher matcher = HEADER_REGEX.matcher(sbHeader);
-		String matched;
-		while (matcher.find()) {
-			if ((matched=matcher.group(Header.HTTP_VERSION)) != null)
-				headerFields.put(Header.HTTP_VERSION, matched);
-			if ((matched=matcher.group(Header.STATUS_CODE)) != null)
-				headerFields.put(Header.STATUS_CODE, Integer.parseInt(matched));
-			if ((matched=matcher.group(Header.CONTENT_TYPE)) != null)
-				headerFields.put(Header.CONTENT_TYPE, matched);
-		}
-
-		return new Header(headerFields);
 	}
 
 	private class HeadRunner implements Runnable {
