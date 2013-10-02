@@ -334,32 +334,30 @@ public class Spider {
 	}
 
 	private class SpiderThreadHead extends Thread {
-		private Spider spider;
 		private Link found;
 
-		public SpiderThreadHead(Spider spider, Link found) {
-			this.spider = spider;
+		public SpiderThreadHead(Link found) {
 			this.found = found;
 		}
 
 		@Override
 		public void run() {
 			doHead();
-			spider.workQueue.remove(this);
+			workQueue.remove(this);
 		}
 
 		private void doHead() {
 			try {
-				int code = spider.httpHead(found.getLinkTo()).getStatusCode();
+				int code = httpHead(found.getLinkTo()).getStatusCode();
 				if (code != 200) {
-					synchronized (spider.invalids) {
-						spider.invalids.add(new InvalidLink(found, code));
+					synchronized (invalids) {
+						invalids.add(new InvalidLink(found, code));
 					}
 				}
 			} catch (IOException e) {
 				// Erro de rede (DNS, etc)
-				synchronized (spider.invalids) {
-					spider.invalids.add(new InvalidLink(found, 0));
+				synchronized (invalids) {
+					invalids.add(new InvalidLink(found, 0));
 				}
 			}
 
@@ -367,62 +365,60 @@ public class Spider {
 	}
 
 	private class SpiderThreadGet extends Thread {
-		private Spider spider;
 		private Link link;
 
-		public SpiderThreadGet(Spider spider, Link link) {
-			this.spider = spider;
+		public SpiderThreadGet(Link link) {
 			this.link = link;
 		}
 
 		@Override
 		public void run() {
 			doGet();
-			spider.workQueue.remove(this);
+			workQueue.remove(this);
 		}
 
 		private void doGet() {
 			Page page;
 			try {
-				page = spider.httpGet(link.getLinkTo());
+				page = httpGet(link.getLinkTo());
 
 				// Se retorna algo diferente de 200, nem mesmo verifica o content-type
 				if (page.getStatusCode() != 200) {
-					synchronized (spider.invalids) {
-						spider.invalids.add(new InvalidLink(link, page.getStatusCode()));
+					synchronized (invalids) {
+						invalids.add(new InvalidLink(link, page.getStatusCode()));
 					}
 					return;
 				}
 			} catch (IOException e) {
 				// Erro de DNS
-				synchronized (spider.invalids) {
-					spider.invalids.add(new InvalidLink(link, 0));
+				synchronized (invalids) {
+					invalids.add(new InvalidLink(link, 0));
 				}
 				return;
 			}
 
 			for (final Link found : page.getLinks()) {
 				final String linkTo = found.getLinkTo();
-				synchronized (spider.viewed) {
-					if (spider.viewed.contains(linkTo))
+				synchronized (viewed) {
+					if (viewed.contains(linkTo))
 						continue;
 					else
-						spider.viewed.add(linkTo);
+						viewed.add(linkTo);
 				}
 
-				if (linkTo.startsWith(spider.baseAddress)) {
-					Thread threadGet = new SpiderThreadGet(spider, found);
-					spider.workQueue.submit(threadGet);
+				if (linkTo.startsWith(baseAddress)) {
+					Thread threadGet = new SpiderThreadGet(found);
+					workQueue.submit(threadGet);
 				} else {
-					Thread threadHead = new SpiderThreadHead(spider, found);
-					spider.workQueue.submit(threadHead);
+					Thread threadHead = new SpiderThreadHead(found);
+					workQueue.submit(threadHead);
 				}
 			}
 		}
 	}
 
 	protected List<InvalidLink> invalidLinks(Link link) {
-		Thread threadGet = new SpiderThreadGet(this, link);
+		Thread threadGet = new SpiderThreadGet(link);
 		try {
 			this.workQueue.submit(threadGet);
 			this.workQueue.executeAndWait();
