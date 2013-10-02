@@ -387,7 +387,7 @@ public class Spider {
 		}
 	}
 
-	private List<InvalidLink> invalidLinks(Link link) {
+	private Iterable<InvalidLink> invalidLinks(Link link) {
 		Runnable getRunner = new GetRequestRunner(link);
 		try {
 			this.workQueue.submit(getRunner);
@@ -398,7 +398,7 @@ public class Spider {
 		return this.invalids;
 	}
 
-	public List<InvalidLink> invalidLinks() {
+	public Iterable<InvalidLink> invalidLinks() {
 		this.viewed.add(this.baseAddress);
 		return invalidLinks(new Link("sitebase", this.baseAddress, 0));
 	}
