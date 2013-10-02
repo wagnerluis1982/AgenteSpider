@@ -11,6 +11,7 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Scanner;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -178,23 +179,80 @@ public class Spider {
 	 * @throws IOException se ocorrer um erro de E/S
 	 */
 	private Iterable<Link> findLinks(final BufferedReader input, String address) {
-		final List<Link> foundLinks = new ArrayList<>();
+		return new FindLinks(input, address);
+	}
 
-		String line;
-		try {
-			for (int lineno = 1; (line=input.readLine()) != null; lineno++) {
-				final Matcher matcher = HREF_REGEX.matcher(line);
-				while (matcher.find()) {
-					String linkTo = absoluteLink(matcher.group(1));
-					if (linkTo != null)
-						foundLinks.add(new Link(address, linkTo, lineno));
-				}
-			}
-		} catch (IOException e) {
-			e.printStackTrace();
+	private class FindLinks implements Iterator<Link>, Iterable<Link> {
+		private BufferedReader input;
+		private String address;
+
+		private boolean looked;
+		private boolean hasElem;
+		private int lineNumber;
+		private String line;
+		private Matcher matcher;
+		private String linkTo;
+
+		public FindLinks(BufferedReader input, String address) {
+			this.input = input;
+			this.address = address;
+			this.looked = false;
+			this.hasElem = false;
+			this.lineNumber = 0;
 		}
 
-		return foundLinks;
+		@Override
+		public boolean hasNext() {
+			if (looked)
+				return hasElem;
+
+			// Se não houver linha, tenta ler
+			if (line == null) {
+				try {
+					line = input.readLine();
+					lineNumber++;
+					matcher = HREF_REGEX.matcher(line);
+				} catch (IOException | NullPointerException e) {
+					looked = true;
+					return (hasElem=false);
+				}
+			}
+
+			// Se encontrou um link, retorna
+			if (matcher.find()) {
+				linkTo = absoluteLink(matcher.group(1));
+				hasElem = linkTo != null;
+				if (hasElem) {
+					looked = true;
+					return true;
+				}
+			}
+
+			// Se não encontrou, tenta novamente
+			return hasNext();
+		}
+
+		@Override
+		public Link next() {
+			if (!hasNext())
+				throw new NoSuchElementException("Não há mais links");
+
+			// Indica que um possível próximo link bem formado ainda não foi olhado
+			looked = false;
+
+			// Retorna link bem formado
+			return new Link(address, linkTo, lineNumber);
+		}
+
+		@Override
+		public void remove() {
+			throw new UnsupportedOperationException("Dados para somente leitura");
+		}
+
+		@Override
+		public Iterator<Link> iterator() {
+			return this;
+		}
 	}
 
 	private SpiderSocket getSpiderSocket(String host) throws IOException {
