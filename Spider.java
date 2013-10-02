@@ -23,7 +23,7 @@ public class Spider {
 	private static final Pattern HREF_REGEX = Pattern.compile(
 			"href=\"([^'\" <>]*)\"", Pattern.CASE_INSENSITIVE);
 	private static final Pattern HOST_REGEX = Pattern.compile(
-			"^http://(?:(.+?)/|(.+)$)", Pattern.CASE_INSENSITIVE);
+			"^http://([0-9a-z.\\-]+)", Pattern.CASE_INSENSITIVE);
 	private static final Pattern PATH_REGEX = Pattern.compile(
 			"^http://.+?(/.*)$", Pattern.CASE_INSENSITIVE);
 	private static final Pattern HEADER_REGEX = Pattern.compile(
@@ -64,13 +64,8 @@ public class Spider {
 	private String getHost(String address) {
 		Matcher matcher = HOST_REGEX.matcher(address);
 
-		if (matcher.find()) {
-			String host = matcher.group(1);
-			if (host != null)
-				return host;
-			else
-				return matcher.group(2);
-		}
+		if (matcher.find())
+			return matcher.group(1);
 
 		return null;
 	}
