@@ -25,11 +25,24 @@ class SpiderWorkQueue {
 		}
 	}
 
-	public void submit(final Thread spiderThread) {
-		waitQueue.offer(spiderThread);
+	public void submit(final Runnable spiderRunner) {
+		waitQueue.offer(new WorkThread(spiderRunner));
 	}
 
-	public boolean remove(Thread finished) {
-		return taskQueue.remove(finished);
+	private void remove(Thread finished) {
+		taskQueue.remove(finished);
 	}
+
+	private class WorkThread extends Thread {
+		public WorkThread(Runnable spiderThread) {
+			super(spiderThread);
+		}
+
+		@Override
+		public void run() {
+			super.run();
+			remove(this);
+		}
+	}
+
 }

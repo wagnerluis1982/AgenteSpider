@@ -333,7 +333,7 @@ public class Spider {
 		return new Header(headerFields);
 	}
 
-	private class HeadRunner extends Thread {
+	private class HeadRunner implements Runnable {
 		private Link found;
 
 		public HeadRunner(Link found) {
@@ -343,7 +343,6 @@ public class Spider {
 		@Override
 		public void run() {
 			doHead();
-			workQueue.remove(this);
 		}
 
 		private void doHead() {
@@ -364,7 +363,7 @@ public class Spider {
 		}
 	}
 
-	private class GetRunner extends Thread {
+	private class GetRunner implements Runnable {
 		private Link link;
 
 		public GetRunner(Link link) {
@@ -374,7 +373,6 @@ public class Spider {
 		@Override
 		public void run() {
 			doGet();
-			workQueue.remove(this);
 		}
 
 		private void doGet() {
@@ -407,10 +405,10 @@ public class Spider {
 				}
 
 				if (linkTo.startsWith(baseAddress)) {
-					Thread getRunner = new GetRunner(found);
+					Runnable getRunner = new GetRunner(found);
 					workQueue.submit(getRunner);
 				} else {
-					Thread headRunner = new HeadRunner(found);
+					Runnable headRunner = new HeadRunner(found);
 					workQueue.submit(headRunner);
 				}
 			}
@@ -418,7 +416,7 @@ public class Spider {
 	}
 
 	protected List<InvalidLink> invalidLinks(Link link) {
-		Thread getRunner = new GetRunner(link);
+		Runnable getRunner = new GetRunner(link);
 		try {
 			this.workQueue.submit(getRunner);
 			this.workQueue.executeAndWait();
