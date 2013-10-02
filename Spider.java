@@ -271,7 +271,7 @@ public class Spider {
 		SpiderSocket sock = getSpiderSocket(host);
 
 		// Requisição
-		String requisition = String.format("HEAD %s HTTP/1.1\r\n" +
+		String requisition = String.format("HEAD %s HTTP/1.0\r\n" +
 				"Host:%s\r\n" +
 				"Connection: close\r\n" +
 				"\r\n", address, host);
@@ -289,7 +289,7 @@ public class Spider {
 		SpiderSocket sock = getSpiderSocket(this.baseHost);
 
 		// Requisição
-		String requisition = String.format("GET %s HTTP/1.1\r\n" +
+		String requisition = String.format("GET %s HTTP/1.0\r\n" +
 				"Host:%s\r\n" +
 				"Connection: close\r\n" +
 				"\r\n", addressPath, this.baseHost);
