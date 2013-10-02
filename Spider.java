@@ -44,9 +44,20 @@ public class Spider {
 		this.baseAddress = baseAddress;
 		this.baseHost = getHost(baseAddress);
 
-		// Obtém a quantidade de núcleos e define dez tarefas para cada núcleo
-		int availableCpus = Runtime.getRuntime().availableProcessors();
-		this.workQueue = new SpiderWorkQueue(availableCpus*10);
+		// Calcula a quantidade máxima de tarefas possíveis dividindo a memória
+		// livre por 1MB para cada thread, que já é um valor bem generoso, já
+		// que quase não existem páginas com esse tamanho todo e, normalmente,
+		// a maioria das requisições são HEAD.
+		final int tasksByMemory = (int) (Runtime.getRuntime().freeMemory()/1048576);
+
+		// Obtém a quantidade de núcleos e define que deve haver no máximo dez
+		// tarefas para cada núcleo.
+		final int tasksByCpus = Runtime.getRuntime().availableProcessors()*10;
+
+		// Máximo de tarefas que o computador pode executar
+		final int maxTasks = Math.min(tasksByMemory, tasksByCpus);
+
+		this.workQueue = new SpiderWorkQueue(maxTasks);
 	}
 
 	private boolean isValidArg(final String address) {
