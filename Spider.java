@@ -333,10 +333,10 @@ public class Spider {
 		return new Header(headerFields);
 	}
 
-	private class SpiderThreadHead extends Thread {
+	private class HeadRunner extends Thread {
 		private Link found;
 
-		public SpiderThreadHead(Link found) {
+		public HeadRunner(Link found) {
 			this.found = found;
 		}
 
@@ -364,10 +364,10 @@ public class Spider {
 		}
 	}
 
-	private class SpiderThreadGet extends Thread {
+	private class GetRunner extends Thread {
 		private Link link;
 
-		public SpiderThreadGet(Link link) {
+		public GetRunner(Link link) {
 			this.link = link;
 		}
 
@@ -407,20 +407,20 @@ public class Spider {
 				}
 
 				if (linkTo.startsWith(baseAddress)) {
-					Thread threadGet = new SpiderThreadGet(found);
-					workQueue.submit(threadGet);
+					Thread getRunner = new GetRunner(found);
+					workQueue.submit(getRunner);
 				} else {
-					Thread threadHead = new SpiderThreadHead(found);
-					workQueue.submit(threadHead);
+					Thread headRunner = new HeadRunner(found);
+					workQueue.submit(headRunner);
 				}
 			}
 		}
 	}
 
 	protected List<InvalidLink> invalidLinks(Link link) {
-		Thread threadGet = new SpiderThreadGet(link);
+		Thread getRunner = new GetRunner(link);
 		try {
-			this.workQueue.submit(threadGet);
+			this.workQueue.submit(getRunner);
 			this.workQueue.executeAndWait();
 		} catch (InterruptedException e) {
 		}
