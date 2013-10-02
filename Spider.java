@@ -206,30 +206,35 @@ public class Spider {
 			if (looked)
 				return hasElem;
 
-			// Se não houver linha, tenta ler
-			if (line == null) {
-				try {
-					line = input.readLine();
-					lineNumber++;
-					matcher = HREF_REGEX.matcher(line);
-				} catch (IOException | NullPointerException e) {
-					looked = true;
-					return (hasElem=false);
+			while (true) {
+				// Se não houver linha, tenta ler
+				if (line == null) {
+					try {
+						line = input.readLine();
+						lineNumber++;
+						matcher = HREF_REGEX.matcher(line);
+					} catch (IOException | NullPointerException e) {
+						looked = true;
+						try {
+							input.close();
+						} catch (IOException e1) {
+						}
+						return (hasElem=false);
+					}
+				}
+
+				// Se encontrou um link, retorna
+				if (matcher.find()) {
+					linkTo = absoluteLink(matcher.group(1));
+					hasElem = linkTo != null;
+					if (hasElem) {
+						looked = true;
+						return true;
+					}
+				} else {
+					line = null;
 				}
 			}
-
-			// Se encontrou um link, retorna
-			if (matcher.find()) {
-				linkTo = absoluteLink(matcher.group(1));
-				hasElem = linkTo != null;
-				if (hasElem) {
-					looked = true;
-					return true;
-				}
-			}
-
-			// Se não encontrou, tenta novamente
-			return hasNext();
 		}
 
 		@Override
@@ -300,7 +305,6 @@ public class Spider {
 
 		// Obtém a lista de links desse endereço
 		Iterable<Link> links = findLinks(sock.getInput(), address);
-		sock.getRealSock().close();
 
 		return new Page(header, links);
 	}
