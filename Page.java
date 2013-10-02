@@ -1,11 +1,9 @@
-import java.util.List;
-
 
 class Page {
 	private final Header header;
-	private final List<Link> links;
+	private final Iterable<Link> links;
 
-	public Page(Header header, List<Link> links) {
+	public Page(Header header, Iterable<Link> links) {
 		this.header = header;
 		this.links = links;
 	}
@@ -18,7 +16,7 @@ class Page {
 		return header.getContentType();
 	}
 
-	public List<Link> getLinks() {
+	public Iterable<Link> getLinks() {
 		return links;
 	}
 }

@@ -177,7 +177,7 @@ public class Spider {
 	 * @return Lista de links encontrados
 	 * @throws IOException se ocorrer um erro de E/S
 	 */
-	private List<Link> findLinks(final BufferedReader input, String address) {
+	private Iterable<Link> findLinks(final BufferedReader input, String address) {
 		final List<Link> foundLinks = new ArrayList<>();
 
 		String line;
@@ -241,7 +241,7 @@ public class Spider {
 		}
 
 		// Obtém a lista de links desse endereço
-		List<Link> links = findLinks(sock.getInput(), address);
+		Iterable<Link> links = findLinks(sock.getInput(), address);
 		sock.getRealSock().close();
 
 		return new Page(header, links);
