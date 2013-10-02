@@ -28,8 +28,7 @@ public class Spider {
 			"^http://.+?(/.*)$", Pattern.CASE_INSENSITIVE);
 	private static final Pattern HEADER_REGEX = Pattern.compile(
 			"^HTTP/(?<version>[.0-9]+) (?<code>[0-9]+)|" +
-			"^content-type:\\s*(?<ctype>[a-z\\-/]+)|" +
-			"^transfer-encoding:\\s*(?<tencoding>.+)$",
+			"^content-type:\\s*(?<ctype>[a-z\\-/]+)",
 			Pattern.CASE_INSENSITIVE | Pattern.MULTILINE);
 
 	// Other constants

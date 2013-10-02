@@ -6,7 +6,6 @@ class Header {
 	public static String HTTP_VERSION = "version";
 	public static String STATUS_CODE = "code";
 	public static String CONTENT_TYPE = "ctype";
-	public static String TRANSFER_ENCODING = "tencoding";
 
 	private Map<String, Object> fields;
 
@@ -47,13 +46,4 @@ class Header {
 		return (String) ctype;
 	}
 
-	public String getTransferEncoding() {
-		Object tencoding = this.fields.get(TRANSFER_ENCODING);
-		if (tencoding == null) {
-			tencoding = "";
-			this.fields.put(TRANSFER_ENCODING, tencoding);
-		}
-
-		return (String) tencoding;
-	}
 }
