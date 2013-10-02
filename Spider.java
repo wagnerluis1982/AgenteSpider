@@ -333,6 +333,94 @@ public class Spider {
 		return new Header(headerFields);
 	}
 
+	private class SpiderThreadHead extends Thread {
+		private Spider spider;
+		private Link found;
+
+		public SpiderThreadHead(Spider spider, Link found) {
+			this.spider = spider;
+			this.found = found;
+		}
+
+		@Override
+		public void run() {
+			doHead();
+			spider.workQueue.remove(this);
+		}
+
+		private void doHead() {
+			try {
+				int code = spider.httpHead(found.getLinkTo()).getStatusCode();
+				if (code != 200) {
+					synchronized (spider.invalids) {
+						spider.invalids.add(new InvalidLink(found, code));
+					}
+				}
+			} catch (IOException e) {
+				// Erro de rede (DNS, etc)
+				synchronized (spider.invalids) {
+					spider.invalids.add(new InvalidLink(found, 0));
+				}
+			}
+
+		}
+	}
+
+	private class SpiderThreadGet extends Thread {
+		private Spider spider;
+		private Link link;
+
+		public SpiderThreadGet(Spider spider, Link link) {
+			this.spider = spider;
+			this.link = link;
+		}
+
+		@Override
+		public void run() {
+			doGet();
+			spider.workQueue.remove(this);
+		}
+
+		private void doGet() {
+			Page page;
+			try {
+				page = spider.httpGet(link.getLinkTo());
+
+				// Se retorna algo diferente de 200, nem mesmo verifica o content-type
+				if (page.getStatusCode() != 200) {
+					synchronized (spider.invalids) {
+						spider.invalids.add(new InvalidLink(link, page.getStatusCode()));
+					}
+					return;
+				}
+			} catch (IOException e) {
+				// Erro de DNS
+				synchronized (spider.invalids) {
+					spider.invalids.add(new InvalidLink(link, 0));
+				}
+				return;
+			}
+
+			for (final Link found : page.getLinks()) {
+				final String linkTo = found.getLinkTo();
+				synchronized (spider.viewed) {
+					if (spider.viewed.contains(linkTo))
+						continue;
+					else
+						spider.viewed.add(linkTo);
+				}
+
+				if (linkTo.startsWith(spider.baseAddress)) {
+					Thread threadGet = new SpiderThreadGet(spider, found);
+					spider.workQueue.submit(threadGet);
+				} else {
+					Thread threadHead = new SpiderThreadHead(spider, found);
+					spider.workQueue.submit(threadHead);
+				}
+			}
+		}
+	}
+
 	protected List<InvalidLink> invalidLinks(Link link) {
 		Thread threadGet = new SpiderThreadGet(this, link);
 		try {
@@ -382,92 +470,4 @@ public class Spider {
 		System.out.println("TIME " + (System.currentTimeMillis() - startTime));
 	}
 
-}
-
-class SpiderThreadGet extends Thread {
-	private Spider spider;
-	private Link link;
-
-	public SpiderThreadGet(Spider spider, Link link) {
-		this.spider = spider;
-		this.link = link;
-	}
-
-	@Override
-	public void run() {
-		doGet();
-		spider.workQueue.remove(this);
-	}
-
-	private void doGet() {
-		Page page;
-		try {
-			page = spider.httpGet(link.getLinkTo());
-
-			// Se retorna algo diferente de 200, nem mesmo verifica o content-type
-			if (page.getStatusCode() != 200) {
-				synchronized (spider.invalids) {
-					spider.invalids.add(new InvalidLink(link, page.getStatusCode()));
-				}
-				return;
-			}
-		} catch (IOException e) {
-			// Erro de DNS
-			synchronized (spider.invalids) {
-				spider.invalids.add(new InvalidLink(link, 0));
-			}
-			return;
-		}
-
-		for (final Link found : page.getLinks()) {
-			final String linkTo = found.getLinkTo();
-			synchronized (spider.viewed) {
-				if (spider.viewed.contains(linkTo))
-					continue;
-				else
-					spider.viewed.add(linkTo);
-			}
-
-			if (linkTo.startsWith(spider.baseAddress)) {
-				Thread threadGet = new SpiderThreadGet(spider, found);
-				spider.workQueue.submit(threadGet);
-			} else {
-				Thread threadHead = new SpiderThreadHead(spider, found);
-				spider.workQueue.submit(threadHead);
-			}
-		}
-	}
-}
-
-class SpiderThreadHead extends Thread {
-	private Spider spider;
-	private Link found;
-
-	public SpiderThreadHead(Spider spider, Link found) {
-		this.spider = spider;
-		this.found = found;
-	}
-
-	@Override
-	public void run() {
-		doHead();
-		spider.workQueue.remove(this);
-	}
-
-	private void doHead() {
-		try {
-			int code = spider.httpHead(found.getLinkTo()).getStatusCode();
-			if (code != 200) {
-				synchronized (spider.invalids) {
-					spider.invalids.add(new InvalidLink(found, code));
-				}
-			}
-		} catch (IOException e) {
-			// Erro de rede (DNS, etc)
-			synchronized (spider.invalids) {
-				spider.invalids.add(new InvalidLink(found, 0));
-			}
-		}
-
-	}
 }
