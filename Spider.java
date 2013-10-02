@@ -1,6 +1,5 @@
 import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.Socket;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -28,12 +27,12 @@ public class Spider {
 	// Other constants
 	private static final List<Link> NO_LINKS = Collections.emptyList();
 
-	protected final String baseAddress;
+	private final String baseAddress;
 	private final String baseHost;
-	protected final List<InvalidLink> invalids = Collections.synchronizedList(new ArrayList<InvalidLink>());
-	protected final Set<String> viewed = Collections.synchronizedSet(new HashSet<String>());
+	private final List<InvalidLink> invalids = Collections.synchronizedList(new ArrayList<InvalidLink>());
+	private final Set<String> viewed = Collections.synchronizedSet(new HashSet<String>());
 
-	protected final SpiderWorkQueue workQueue;
+	private final SpiderWorkQueue workQueue;
 
 	// Construtor
 	public Spider(String baseAddress) {
@@ -70,6 +69,12 @@ public class Spider {
 			return matcher.group(1);
 
 		return "/";
+	}
+
+	private class NormalizationException extends Exception {
+		public NormalizationException(String message) {
+			super(message);
+		}
 	}
 
 	/**
@@ -160,16 +165,8 @@ public class Spider {
 
 	/**
 	 * Obtém todos os links em uma página HTML, passada como argumento através
-	 * de um {@link InputStream}.
-	 *
-	 * @param sock Página HTML
-	 * @return Lista de links encontrados
-	 * @throws IOException se ocorrer um erro de E/S
+	 * de um {@link BufferedReader} conectado a um {@link Socket}.
 	 */
-	private Iterable<Link> findLinks(final BufferedReader input, String address) {
-		return new FindLinks(input, address);
-	}
-
 	private class FindLinks implements Iterator<Link>, Iterable<Link> {
 		private BufferedReader input;
 		private String address;
@@ -252,7 +249,7 @@ public class Spider {
 		return new SpiderSocket(new Socket(host, 80));
 	}
 
-	protected Header httpHead(String address) throws IOException {
+	private Header httpHead(String address) throws IOException {
 		// Conexão
 		String host = getHost(address);
 		address = getAddressPath(address);
@@ -271,7 +268,7 @@ public class Spider {
 		return header;
 	}
 
-	protected Page httpGet(String address) throws IOException {
+	private Page httpGet(String address) throws IOException {
 		// Conexão
 		String addressPath = getAddressPath(address);
 		SpiderSocket sock = getSpiderSocket(this.baseHost);
@@ -292,15 +289,15 @@ public class Spider {
 		}
 
 		// Obtém a lista de links desse endereço
-		Iterable<Link> links = findLinks(sock.getInput(), address);
+		Iterable<Link> links = new FindLinks(sock.getInput(), address);
 
 		return new Page(header, links);
 	}
 
-	private class HeadRunner implements Runnable {
+	private class HeadRequestRunner implements Runnable {
 		private Link found;
 
-		public HeadRunner(Link found) {
+		public HeadRequestRunner(Link found) {
 			this.found = found;
 		}
 
@@ -327,10 +324,10 @@ public class Spider {
 		}
 	}
 
-	private class GetRunner implements Runnable {
+	private class GetRequestRunner implements Runnable {
 		private Link link;
 
-		public GetRunner(Link link) {
+		public GetRequestRunner(Link link) {
 			this.link = link;
 		}
 
@@ -369,18 +366,18 @@ public class Spider {
 				}
 
 				if (linkTo.startsWith(baseAddress)) {
-					Runnable getRunner = new GetRunner(found);
+					Runnable getRunner = new GetRequestRunner(found);
 					workQueue.submit(getRunner);
 				} else {
-					Runnable headRunner = new HeadRunner(found);
+					Runnable headRunner = new HeadRequestRunner(found);
 					workQueue.submit(headRunner);
 				}
 			}
 		}
 	}
 
-	protected List<InvalidLink> invalidLinks(Link link) {
-		Runnable getRunner = new GetRunner(link);
+	private List<InvalidLink> invalidLinks(Link link) {
+		Runnable getRunner = new GetRequestRunner(link);
 		try {
 			this.workQueue.submit(getRunner);
 			this.workQueue.executeAndWait();
